@@ -31,8 +31,14 @@ import PlutusTx.Prelude hiding (Semigroup (..), unless)
 import Text.Printf (printf)
 import Prelude (IO, Semigroup (..), Show, String, toInteger, (^))
 
--- User will start a fund and specify which fund it is.Then others can cast their vote in this fund.
--- Once the fund ends , projects in this fund can collect their grants.
+-- Flow for this on playground should work as follows
+-- 1)One wallet will start the fund with a prize for the winner of this fund
+-- 2)User will vote in this fund. The cost to cast a vote to the same project is the amount of vote they cast in the past to the power of two
+-- Example :: It will cost 1 vote to vote for project A in Fund 1.For the wallet to cast another vote again for the same project in the same fund , the
+-- cost will be 4 , to cast another one it will be 9 , to cast another one it will be 16.
+-- 3)After round has ended , user can get a refund on the money they used to vote
+-- 4)The winner of the round can collect their winnings , if they recived the most amount of vote
+
 data VotingDatum = VotingDatum
   { projectPubKey :: PaymentPubKeyHash,
     amount :: Integer,
@@ -43,9 +49,12 @@ data VotingDatum = VotingDatum
 
 PlutusTx.unstableMakeIsData ''VotingDatum
 
+-- There needs to be more work done on the validator script. I am not sure if where the logic of some of the code should be located. Should
+-- the logic of accepting the vote, determining if they can recieve the fund etc.... be in the validator script , or should it be off-chain in the wallet.
+-- Having trouble deciding what part should be on-chain and what part should not , work-in-progress .........
 {-# INLINEABLE mkValidator #-}
-mkValidator :: VotingDatum -> Integer -> ScriptContext -> Bool
-mkValidator dat r ctx =
+mkValidator :: VotingDatum -> () -> ScriptContext -> Bool
+mkValidator dat _ ctx =
   traceIfFalse "beneficiary's signature missing" signedByBeneficiary
   where
     info :: TxInfo
@@ -58,7 +67,7 @@ data Voting
 
 instance Scripts.ValidatorTypes Voting where
   type DatumType Voting = VotingDatum
-  type RedeemerType Voting = Integer
+  type RedeemerType Voting = ()
 
 typedValidator :: Scripts.TypedValidator Voting
 typedValidator =
@@ -66,7 +75,7 @@ typedValidator =
     $$(PlutusTx.compile [||mkValidator||])
     $$(PlutusTx.compile [||wrap||])
   where
-    wrap = Scripts.wrapValidator @VotingDatum @Integer
+    wrap = Scripts.wrapValidator @VotingDatum @()
 
 validator :: Validator
 validator = Scripts.validatorScript typedValidator
@@ -77,6 +86,7 @@ valHash = Scripts.validatorHash typedValidator
 scrAddress :: Ledger.Address
 scrAddress = scriptAddress validator
 
+-- Params for each endpoint(action) that the user can do
 data StartParams = StartParams
   { spMatchAmount :: !Integer,
     spRoundEnd :: !POSIXTime,
@@ -96,9 +106,15 @@ data CollectParams = CollectParams
   }
   deriving (Generic, ToJSON, FromJSON, ToSchema)
 
+data RefundParams = RefundParams
+  { rpFund :: !Integer
+  }
+  deriving (Generic, ToJSON, FromJSON, ToSchema)
+
 type VoteSchema =
   Endpoint "start" StartParams
     .\/ Endpoint "vote" VoteParams
+    .\/ Endpoint "refund" RefundParams
     .\/ Endpoint "collect" CollectParams
 
 -- Below is the function to start a fund, it is under development
@@ -132,13 +148,13 @@ vote vp = do
         Nothing -> False
         Just d -> paymentPubKey d == pkh && fund d == fundRound && projectPubKey d == projectKey
 
--- Function for projects to collect their funds
-collect :: forall w s e. AsContractError e => CollectParams -> Contract w s e ()
-collect cp = do
+-- Function for voters to get their refund
+refund :: forall w s e. AsContractError e => RefundParams -> Contract w s e ()
+refund rp = do
   pkh <- ownPaymentPubKeyHash
-  utxos <- Map.filter (isSuitable pkh) <$> utxosAt scrAddress
+  utxos <- Map.filter (isSuitable pkh (rpFund rp)) <$> utxosAt scrAddress
   if Map.null utxos
-    then logInfo @String $ "no funds available"
+    then logInfo @String $ "no refunds available"
     else do
       let orefs = fst <$> Map.toList utxos
           lookups =
@@ -149,20 +165,24 @@ collect cp = do
             mconcat [Constraints.mustSpendScriptOutput oref unitRedeemer | oref <- orefs]
       ledgerTx <- submitTxConstraintsWith @Void lookups tx
       void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
-      logInfo @String $ "collected funds"
+      logInfo @String $ "collected refunds"
   where
-    isSuitable :: PaymentPubKeyHash -> ChainIndexTxOut -> Bool
-    isSuitable pkh o = case _ciTxOutDatum o of
+    isSuitable :: PaymentPubKeyHash -> Integer -> ChainIndexTxOut -> Bool
+    isSuitable pkh fundRound o = case _ciTxOutDatum o of
       Left _ -> False
       Right (Datum e) -> case PlutusTx.fromBuiltinData e of
         Nothing -> False
-        Just d -> projectPubKey d == pkh
+        Just d -> paymentPubKey d == pkh && fund d == fundRound
+
+--Function for winner to collect winnings , it is under development
+--collect :: ()
+--collect () = ()
 
 endpoints :: Contract () VoteSchema Text ()
-endpoints = awaitPromise (vote' `select` collect') >> endpoints
+endpoints = awaitPromise (vote' `select` refund') >> endpoints
   where
     vote' = endpoint @"vote" vote
-    collect' = endpoint @"collect" collect
+    refund' = endpoint @"refund" refund
 
 mkSchemaDefinitions ''VoteSchema
 
