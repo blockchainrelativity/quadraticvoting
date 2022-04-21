@@ -52,16 +52,21 @@ PlutusTx.unstableMakeIsData ''FundCreationDatum
 PlutusTx.makeLift ''FundCreationDatum
 
 data ProjectSubmitDatum = ProjectSubmitDatum
-  { vProjectOwner :: PaymentPubKeyHash,
-    vProjectCategory :: BuiltinByteString,
-    vFundPayIdentifier :: PaymentPubKeyHash
+  { vProjectOwner           :: PaymentPubKeyHash,
+    vProjectRegistrationFee :: Integer,
+    vProjectCategory        :: BuiltinByteString,
+    vFundPayIdentifier      :: PaymentPubKeyHash
   }
   deriving (Show)
+
+minFeeRegistration :: Integer
+minFeeRegistration = 1000000
 
 instance Eq ProjectSubmitDatum where
   {-# INLINEABLE (==) #-}
   b == c =
     (vProjectOwner b == vProjectOwner c)
+      && (vProjectRegistrationFee b == vProjectRegistrationFee c)
       && (vProjectCategory b == vProjectCategory c)
       && (vFundPayIdentifier b == vFundPayIdentifier c)
 
@@ -71,7 +76,6 @@ PlutusTx.makeLift ''ProjectSubmitDatum
 data VotingActionDatum = VotingActionDatum
   { vProjectToVote :: PaymentPubKeyHash,
     vVoterPayAddress :: PaymentPubKeyHash,
-    vNumberOfVotes :: Integer,
     vAdaLovelaceValue :: Integer,
     vActionName :: BuiltinByteString
   }
@@ -82,7 +86,6 @@ instance Eq VotingActionDatum where
   b == c =
     (vProjectToVote b == vProjectToVote c)
       && (vVoterPayAddress b == vVoterPayAddress c)
-      && (vNumberOfVotes b == vNumberOfVotes c)
       && (vAdaLovelaceValue b == vAdaLovelaceValue c)
       && (vActionName b == vActionName c)
 
@@ -104,7 +107,11 @@ instance Eq ConToMatchPool where
 PlutusTx.unstableMakeIsData ''ConToMatchPool
 PlutusTx.makeLift ''ConToMatchPool
 
-data QuadraAction = SubProject ProjectSubmitDatum | VoteProject VotingActionDatum | ContribPool ConToMatchPool deriving (Show)
+--data QuadraAction = SubProject ProjectSubmitDatum | VoteProject VotingActionDatum | ContribPool ConToMatchPool deriving (Show)
+-- Probably the above QuadraAuction was wrong here,
+-- It is better to do it like this: 
+
+data QuadraAction =  Vote | ContributeToPool | ProjectRegistration | CollectPrize deriving (Show)
 
 PlutusTx.unstableMakeIsData ''QuadraAction
 PlutusTx.makeLift ''QuadraAction
@@ -130,10 +137,21 @@ PlutusTx.makeLift ''QuadraDatum
 
 {-# INLINEABLE mkValidator #-}
 mkValidator :: QuadraDatum -> QuadraAction -> ScriptContext -> Bool
-mkValidator dat redeemer ctx = True
+mkValidator dat redeemer ctx = 
+   case redeemer of
+      ProjectRegistration ->
+        case qSubProject dat of
+           Nothing -> True
+           Just ProjectSubmitDatum{..}  -> traceIfFalse "not enough funds to register project" (projectFundsSufficient vProjectRegistrationFee) 
+      -- here we will now start with other action types
+      -- Vote             -> toimplement...
+      -- COntributeToPool -> toimplement...
+   where
+     projectFundsSufficient :: Integer -> Bool
+     projectFundsSufficient regFee = regFee >= minFeeRegistration 
+
 
 data QuadraVoting
-
 instance Scripts.ValidatorTypes QuadraVoting where
   type RedeemerType QuadraVoting = QuadraAction
   type DatumType QuadraVoting = QuadraDatum
