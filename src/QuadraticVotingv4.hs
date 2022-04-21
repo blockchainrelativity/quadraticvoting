@@ -92,6 +92,9 @@ instance Eq VotingActionDatum where
 PlutusTx.unstableMakeIsData ''VotingActionDatum
 PlutusTx.makeLift ''VotingActionDatum
 
+minVotingAda :: Integer
+minVotingAda = 10000000
+
 data ConToMatchPool = ConToMatchPool
   { vFundAddress :: PaymentPubKey,
     vPrizeFund :: Integer
@@ -142,13 +145,25 @@ mkValidator dat redeemer ctx =
       ProjectRegistration ->
         case qSubProject dat of
            Nothing -> True
-           Just ProjectSubmitDatum{..}  -> traceIfFalse "not enough funds to register project" (projectFundsSufficient vProjectRegistrationFee) 
+           Just ProjectSubmitDatum{..}  -> traceIfFalse "not enough funds to register project" (projectFundsSufficient vProjectRegistrationFee)
+
+      Vote ->
+        case qVoting dat of
+           Nothing -> True
+           Just VotingActionDatum{..}    -> traceIfFalse "not enough Ada to vote" (enoughVotingAda vAdaLovelaceValue)
       -- here we will now start with other action types
       -- Vote             -> toimplement...
       -- COntributeToPool -> toimplement...
    where
+
+     info :: TxInfo
+     info = scriptContextTxInfo ctx
+
      projectFundsSufficient :: Integer -> Bool
-     projectFundsSufficient regFee = regFee >= minFeeRegistration 
+     projectFundsSufficient regFee = regFee >= minFeeRegistration
+
+     enoughVotingAda         :: Integer -> Bool
+     enoughVotingAda votingAda = votingAda >= minVotingAda
 
 
 data QuadraVoting
