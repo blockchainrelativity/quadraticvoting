@@ -191,6 +191,8 @@ valHash = Scripts.validatorHash typedValidator
 scrAddress :: Ledger.Address
 scrAddress = scriptAddress validator
 
+-- I know we arent using endpoints but i am not too sure on how else to pass parameters
+-- to the functions yet.
 data CreateFundParams = CreateFundParams
   { cpFundOwner :: PaymentPubKeyHash
   , cpPrizeAmount :: Integer
@@ -207,6 +209,7 @@ type QuadraSchema =
 -- as a paramter to distribute the fund once it ends.
 
 
+-- I am still getting "expedted type maybe [a] , got type [a]"
 -- Am i getting the erros because i am not specifing the redemmer type when submitting the transaction? 
 -- Are we even going to submit transactions like this ? Or another way. 
 
