@@ -96,7 +96,7 @@ minVotingAda :: Integer
 minVotingAda = 10000000
 
 data ConToMatchPool = ConToMatchPool
-  { vFundAddress :: PaymentPubKey,
+  { vFundAddress :: PaymentPubKeyHash,
     vPrizeFund :: Integer
   }
   deriving (Show)
@@ -114,7 +114,13 @@ PlutusTx.makeLift ''ConToMatchPool
 -- Probably the above QuadraAuction was wrong here,
 -- It is better to do it like this: 
 
-data QuadraAction =  Vote | ContributeToPool | ProjectRegistration | CollectPrize deriving (Show)
+type QuadraAction = String deriving (Show)
+  -- Vote | ContributeToPool | ProjectRegistration | CollectPrize deriving (Show)
+
+-- what we can also do is the redeemer to be
+-- a simple String
+-- type QuadraAction = String
+-- and in the mkVAlidator do it like "Vote" or "COntribute" etc etc
 
 PlutusTx.unstableMakeIsData ''QuadraAction
 PlutusTx.makeLift ''QuadraAction
@@ -144,16 +150,21 @@ PlutusTx.makeLift ''QuadraDatum
 {-# INLINEABLE mkValidator #-}
 mkValidator :: QuadraDatum -> QuadraAction -> ScriptContext -> Bool
 mkValidator dat redeemer ctx = 
-   case of
-      ProjectRegistration ->
+   case redeemer of
+      "ProjectRegistration" ->
         case qSubProject dat of
            Nothing -> True
            Just ProjectSubmitDatum{..}  -> traceIfFalse "not enough funds to register project" (projectFundsSufficient vProjectRegistrationFee)
 
-      Vote ->
+      "Vote" ->
         case qVoting dat of
            Nothing -> True
-           Just VotingActionDatum{..}    -> traceIfFalse "not enough Ada to vote" (enoughVotingAda vAdaLovelaceValue)
+           Just VotingActionDatum{..}    -> traceIfFalse "not enough Ada to vote" (enoughAda vAdaLovelaceValue)
+
+      "ContributeToPool" ->
+        case qContrPool dat of 
+           Nothing -> True
+           Just ConToMatchPool{..}       -> traceIfFalse "not correct inputs to contribute to pool" (enoughAda vPrizeFund)
       -- here we will now start with other action types
       -- Vote             -> toimplement...
       -- COntributeToPool -> toimplement...
@@ -165,8 +176,8 @@ mkValidator dat redeemer ctx =
      projectFundsSufficient :: Integer -> Bool
      projectFundsSufficient regFee = regFee >= minFeeRegistration
 
-     enoughVotingAda         :: Integer -> Bool
-     enoughVotingAda votingAda = votingAda >= minVotingAda
+     enoughAda         :: Integer -> Bool
+     enoughAda votingAda = votingAda >= minVotingAda
 
 
 data QuadraVoting
@@ -212,6 +223,16 @@ type QuadraSchema =
 -- I am still getting "expedted type maybe [a] , got type [a]"
 -- Am i getting the erros because i am not specifing the redemmer type when submitting the transaction? 
 -- Are we even going to submit transactions like this ? Or another way. 
+
+-- **Answer to your question:
+   -- Yeah seems like it is. I am not sure how u are passing the Redeemer, but that also raises something that I just changed
+   -- I converted the redeemer to something super simple, a string
+   -- because before, the Vote | etc etc were constructors, and could not easily be passed from CLI.
+
+   -- Also, something else that I think it will help clean up yout thoughts.
+   -- HOw we will submit transactions? HOw datum and redeemer will be structured?
+   -- Well in order for things to work, we need to parse datum & redeemer, into an acceptable format. AKA JSON!
+   -- I will create a helper function (outside of script) to parse things offchain before someone sumbits transactions.
 
 -- I am trying to construct a trnasaction like this 
 start :: forall w s e. AsContractError e => CreateFundParams -> Contract w s e ()
