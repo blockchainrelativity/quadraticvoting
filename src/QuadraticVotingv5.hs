@@ -114,8 +114,7 @@ PlutusTx.makeLift ''ConToMatchPool
 -- Probably the above QuadraAuction was wrong here,
 -- It is better to do it like this: 
 
-type QuadraAction = String deriving (Show)
-  -- Vote | ContributeToPool | ProjectRegistration | CollectPrize deriving (Show)
+data QuadraAction = Vote | ContributeToPool | ProjectRegistration | CollectPrize deriving (Show)
 
 -- what we can also do is the redeemer to be
 -- a simple String
@@ -151,17 +150,17 @@ PlutusTx.makeLift ''QuadraDatum
 mkValidator :: QuadraDatum -> QuadraAction -> ScriptContext -> Bool
 mkValidator dat redeemer ctx = 
    case redeemer of
-      "ProjectRegistration" ->
+      ProjectRegistration ->
         case qSubProject dat of
            Nothing -> True
            Just ProjectSubmitDatum{..}  -> traceIfFalse "not enough funds to register project" (projectFundsSufficient vProjectRegistrationFee)
 
-      "Vote" ->
+      Vote ->
         case qVoting dat of
            Nothing -> True
            Just VotingActionDatum{..}    -> traceIfFalse "not enough Ada to vote" (enoughAda vAdaLovelaceValue)
 
-      "ContributeToPool" ->
+      ContributeToPool ->
         case qContrPool dat of 
            Nothing -> True
            Just ConToMatchPool{..}       -> traceIfFalse "not correct inputs to contribute to pool" (enoughAda vPrizeFund)
@@ -225,9 +224,7 @@ type QuadraSchema =
 -- Are we even going to submit transactions like this ? Or another way. 
 
 -- **Answer to your question:
-   -- Yeah seems like it is. I am not sure how u are passing the Redeemer, but that also raises something that I just changed
-   -- I converted the redeemer to something super simple, a string
-   -- because before, the Vote | etc etc were constructors, and could not easily be passed from CLI.
+   -- Yeah seems like it is. I am not sure how u are passing the Redeemer,but we can check
 
    -- Also, something else that I think it will help clean up yout thoughts.
    -- HOw we will submit transactions? HOw datum and redeemer will be structured?
@@ -235,17 +232,17 @@ type QuadraSchema =
    -- I will create a helper function (outside of script) to parse things offchain before someone sumbits transactions.
 
 -- I am trying to construct a trnasaction like this 
-start :: forall w s e. AsContractError e => CreateFundParams -> Contract w s e ()
-start cp = do 
-  let dat = QuadraDatum qContrPool
-            {vFundOwner = cpFundOwner cp
-            ,vPrizeAmount = cpPrizeAmount cp
-            ,vProjectLabel = cpProjectLabel cp
-            ,vPrizeDistributionRatio = cpPrizeDistributionRatio cp
-            }
-      tx = Constraints.mustPayToTheScript dat $ Ada.lovelaceValueOf $ (cpPrizeAmount cp)
-  ledgerTx <- submitTxConstraints typedValidator tx
-  void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
-  logInfo @String $ printf "created fund" 
+--start :: forall w s e. AsContractError e => CreateFundParams -> Contract w s e ()
+--start cp = do 
+--  let dat = QuadraDatum qContrPool
+--            {vFundOwner = cpFundOwner cp
+--            ,vPrizeAmount = cpPrizeAmount cp
+--            ,vProjectLabel = cpProjectLabel cp
+--            ,vPrizeDistributionRatio = cpPrizeDistributionRatio cp
+--            }
+--      tx = Constraints.mustPayToTheScript dat $ Ada.lovelaceValueOf $ (cpPrizeAmount cp)
+--  ledgerTx <- submitTxConstraints typedValidator tx
+--  void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
+--  logInfo @String $ printf "created fund" 
 
 mkSchemaDefinitions ''QuadraSchema
