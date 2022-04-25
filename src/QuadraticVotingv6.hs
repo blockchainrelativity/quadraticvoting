@@ -88,6 +88,7 @@ instance Eq VotingActionDatum where
     (vProjectToVote b == vProjectToVote c)
       && (vVoterPayAddress b == vVoterPayAddress c)
       && (vAdaLovelaceValue b == vAdaLovelaceValue c)
+      && (vVoteFundIdentifier b == vVoteFundIdentifier c)
       && (vActionName b == vActionName c)
 
 PlutusTx.unstableMakeIsData ''VotingActionDatum
@@ -146,6 +147,13 @@ PlutusTx.makeLift ''QuadraDatum
 
 -- Since the validator script only validates the transaction and nothing else ,
 -- so does that mean the code for distributing the funds will be off-chain?
+
+-- Great question. Anything else apart from validator, and boiler plate for hashes & plutus Core compilation, is considered offchain code.
+-- So yeah the distribution of funds will be an offchain function. Which can be coded here, and be exposured as an endpoint.
+-- And what we can basically do is, create a function that when called, it will check all the utxos with their datums and do the following:
+-- based on the UTXO search u coded, and the voting power functionality applied.
+-- 1. Decide the winners and allocate the prize
+-- 2. DIstribute funds to projects that are not winners
 
 {-# INLINEABLE mkValidator #-}
 mkValidator :: QuadraDatum -> QuadraAction -> ScriptContext -> Bool
@@ -214,8 +222,32 @@ collectPrize CollectPrizeParams {..} = do
   initalMatchPool <- Map.filter (findInitalAmount fundAddress) <$> utxosAt scrAddress
   donatedMatchPool <- Map.filter (findDonateMatchPool fundAddress) <$> utxosAt scrAddress
   projects <- Map.filter (findProjects fundAddress) <$> utxosAt scrAddress
-  votes <- Map.filter (findVotes fundAddress) <$> utxosAt scrAddress
+  votes <- findAttachedDatums fundAddress
+  -- Map.filter (findVotes fundAddress) <$> utxosAt scrAddress
+  --let countOfVotes = toInteger (Map.size votes)
+  --let listOfDatumHashes = [(\datumHashes -> txOutDatum distinctUtxos) | distinctUtxos <- votes]
+  --let listOfDatums = [(oref, o)| (oref,o) <- Map.toList votes]
   logInfo @String $ printf "prize collected"
+
+-- Write the function that searches for utxos, structure them as lists, and returns a list of two paired tuples (i.e [(txOutRef, votingDatums)]
+findAttachedDatums :: PaymentPubKeyHash
+            -> Contract w s Text [(TxOutRef, ChainIndexTxOut, VotingActionDatum)]
+findAttachedDatums fundId = do
+    utxos <- utxosAt $ scriptHashAddress valHash
+    let theDatums = [ (oref, o)
+             | (oref, o) <- Map.toList utxos]
+    case theDatums of
+        [(oref, o)] -> case _ciTxOutDatum o of
+            Left _          -> throwError "datum missing"
+            Right (Datum e) -> case PlutusTx.fromBuiltinData e of
+                Nothing -> throwError "datum has wrong type"
+                Just d@QuadraDatum{..} -> case qVoting of 
+                                            Nothing -> throwError "there is no voting datum passed"
+                                            Just v@VotingActionDatum{..}  -> return [(oref, o, v)]
+        _         -> throwError "utxos not found"
+
+--------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------
 
 endpoints :: Contract () QuadraSchema Text ()
 endpoints = awaitPromise (collectPrize') >> endpoints
@@ -253,6 +285,8 @@ findProjects fundId o = case _ciTxOutDatum o of
     Just d -> vFundPayIdentifier d == fundId
 
 -- Find all utxos that were votes in this fund
+-- This is SUPER CORRECT, but we need a more indepth lookup function to go deeper to the nested datums
+-- I am keeping it in, as it might be useful, but I basically replaced findVotes with findAttachedDatum
 findVotes :: PaymentPubKeyHash -> ChainIndexTxOut -> Bool
 findVotes fundId o = case _ciTxOutDatum o of
   Left _ -> False
