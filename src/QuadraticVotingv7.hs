@@ -217,12 +217,16 @@ start :: forall w s e. AsContractError e => StartFundParams -> Contract w s e ()
 start sp = do
   pkh <- ownPaymentPubKeyHash
   let dat =
-        QuadraDatum
-          qCreateFund
-            { vFundOwner = pkh,
+        QuadraDatum {
+        qCreateFund = Just (FundCreationDatum { vFundOwner = pkh,
               vPrizeAmount = prizeAmount sp,
               vPrizeDistributionRatio = prizeDistributionRatio sp,
               vProjectLabel = projectLabel sp
+            }),
+        qVoting     = Nothing,
+        qSubProject = Nothing,
+        qContrPool  = Nothing
+        
             }
       tx = Constraints.mustPayToTheScript dat $ Ada.lovelaceValueOf $ (prizeAmount sp)
   ledgerTx <- submitTxConstraints typedValidator tx
