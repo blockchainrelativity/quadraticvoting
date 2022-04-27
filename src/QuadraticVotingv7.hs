@@ -32,6 +32,7 @@ import PlutusTx.Prelude hiding (Semigroup (..), unless)
 import Text.Printf (printf)
 import Prelude (IO, Semigroup (..), Show, String, show, toInteger, (^))
 
+
 data FundCreationDatum = FundCreationDatum
   { vFundOwner :: PaymentPubKeyHash,
     vPrizeAmount :: Integer,
@@ -73,6 +74,7 @@ instance Eq ProjectSubmitDatum where
 PlutusTx.unstableMakeIsData ''ProjectSubmitDatum
 PlutusTx.makeLift ''ProjectSubmitDatum
 
+-- why do we need action name here ? 
 data VotingActionDatum = VotingActionDatum
   { vProjectToVote :: PaymentPubKeyHash,
     vVoterPayAddress :: PaymentPubKeyHash,
@@ -112,13 +114,7 @@ instance Eq ConToMatchPool where
 PlutusTx.unstableMakeIsData ''ConToMatchPool
 PlutusTx.makeLift ''ConToMatchPool
 
--- QUESTION ======= do we really need the quadra action ? We would be able to tell
--- What the action the user is doing just by looking at the datum right ?
--- If qCreateFund is filled out and the others is not , then it means it is
--- creating a fund , if qvoting is filled out and the others are not
--- that means it is voting etc.......
-
-data QuadraAction = Vote | ContributeToPool | ProjectRegistration | CollectPrize deriving (Show)
+data QuadraAction = Start | Vote | ContributeToPool | ProjectRegistration | CollectPrize deriving (Show)
 
 PlutusTx.unstableMakeIsData ''QuadraAction
 PlutusTx.makeLift ''QuadraAction
@@ -146,6 +142,10 @@ PlutusTx.makeLift ''QuadraDatum
 mkValidator :: QuadraDatum -> QuadraAction -> ScriptContext -> Bool
 mkValidator dat redeemer ctx =
   case redeemer of
+    Start ->
+      case qCreateFund dat of
+        Nothing -> True
+        Just FundCreationDatum {..} -> traceIfFalse "not correct proportion" (correctProportion vPrizeDistributionRatio)
     ProjectRegistration ->
       case qSubProject dat of
         Nothing -> True
@@ -157,7 +157,7 @@ mkValidator dat redeemer ctx =
     ContributeToPool ->
       case qContrPool dat of
         Nothing -> True
-        Just ConToMatchPool {..} -> traceIfFalse "not correct inputs to contribute to pool" (enoughAda vPrizeFund)
+        Just ConToMatchPool {..} -> traceIfFalse "not correct inputs to contribute to pool" (enoughAda vPrizeFund) 
   where
     -- here we will now start with other action types
     -- Vote             -> toimplement...
@@ -168,9 +168,12 @@ mkValidator dat redeemer ctx =
 
     projectFundsSufficient :: Integer -> Bool
     projectFundsSufficient regFee = regFee >= minFeeRegistration
-
+    
     enoughAda :: Integer -> Bool
     enoughAda votingAda = votingAda >= minVotingAda
+    
+    correctProportion :: [Integer] -> Bool
+    correctProportion proportion = sum proportion == 1 
 
 data QuadraVoting
 
@@ -208,11 +211,34 @@ data StartFundParams = StartFundParams
   }
   deriving (Generic, ToJSON, FromJSON, ToSchema)
 
+data ProjectSubmitParams = ProjectSubmitParams
+  { registrationFee :: Integer,
+    projectCategory :: BuiltinByteString,
+    fundIdentifier :: PaymentPubKeyHash
+  }
+  deriving (Generic, ToJSON, FromJSON, ToSchema)
+
+data ConToMatchPoolParams = ConToMatchPoolParams
+  { fundPaymentAddress:: PaymentPubKeyHash,
+    conAmount :: Integer
+  }
+  deriving (Generic, ToJSON, FromJSON, ToSchema)
+
+data VoteParams = VoteParams
+  { projectToVote :: PaymentPubKeyHash
+  , adaLoveLaceAmount :: Integer
+  , voteFundIdentifier :: PaymentPubKeyHash
+  , actionName :: BuiltinByteString
+  }
+  deriving (Generic, ToJSON, FromJSON, ToSchema)
+
 type QuadraSchema =
   Endpoint "collectPrize" CollectPrizeParams
     .\/ Endpoint "start" StartFundParams
+    .\/ Endpoint "submit project" ProjectSubmitParams
+    .\/ Endpoint "contribute to pool" ConToMatchPoolParams
+    .\/ Endpoint "vote" VoteParams
 
----The function that i am struggling with. I am defining the values like this.
 start :: forall w s e. AsContractError e => StartFundParams -> Contract w s e ()
 start sp = do
   pkh <- ownPaymentPubKeyHash
@@ -226,12 +252,67 @@ start sp = do
         qVoting     = Nothing,
         qSubProject = Nothing,
         qContrPool  = Nothing
-        
             }
       tx = Constraints.mustPayToTheScript dat $ Ada.lovelaceValueOf $ (prizeAmount sp)
   ledgerTx <- submitTxConstraints typedValidator tx
   void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
-  logInfo @String $ printf "created fund %d"
+  logInfo @String $ printf "created fund "
+
+submitProject :: forall w s e. AsContractError e => ProjectSubmitParams -> Contract w s e ()
+submitProject sp = do
+  pkh <- ownPaymentPubKeyHash
+  let dat =
+        QuadraDatum {
+        qSubProject = Just (ProjectSubmitDatum { vProjectOwner = pkh,
+              vProjectRegistrationFee = registrationFee sp,
+              vProjectCategory = projectCategory sp,
+              vFundPayIdentifier = fundIdentifier sp
+            }),
+        qVoting     = Nothing,
+        qCreateFund = Nothing,
+        qContrPool  = Nothing
+            }
+      tx = Constraints.mustPayToTheScript dat $ Ada.lovelaceValueOf $ (registrationFee sp)
+  ledgerTx <- submitTxConstraints typedValidator tx
+  void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
+  logInfo @String $ printf "created fund "
+
+donateToPool :: forall w s e. AsContractError e => ConToMatchPoolParams -> Contract w s e ()
+donateToPool mp = do
+  let dat =
+        QuadraDatum {
+        qContrPool = Just (ConToMatchPool { vFundAddress = fundPaymentAddress mp,
+              vPrizeFund = conAmount mp
+            }),
+        qVoting     = Nothing,
+        qSubProject = Nothing,
+        qCreateFund  = Nothing
+            }
+      tx = Constraints.mustPayToTheScript dat $ Ada.lovelaceValueOf $ (conAmount mp)
+  ledgerTx <- submitTxConstraints typedValidator tx
+  void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
+  logInfo @String $ printf "created fund "
+
+
+vote :: forall w s e. AsContractError e => VoteParams -> Contract w s e ()
+vote vp = do
+  pkh <- ownPaymentPubKeyHash
+  let dat =
+        QuadraDatum {
+        qVoting = Just (VotingActionDatum { vProjectToVote = projectToVote vp,
+              vVoterPayAddress = pkh ,
+              vAdaLovelaceValue = adaLoveLaceAmount vp,
+              vVoteFundIdentifier = voteFundIdentifier vp,
+              vActionName = actionName vp
+            }),
+        qCreateFund    = Nothing,
+        qSubProject = Nothing,
+        qContrPool  = Nothing
+            }
+      tx = Constraints.mustPayToTheScript dat $ Ada.lovelaceValueOf $ (adaLoveLaceAmount vp)
+  ledgerTx <- submitTxConstraints typedValidator tx
+  void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
+  logInfo @String $ printf "created fund "
 
 collectPrize :: forall w s. CollectPrizeParams -> Contract w s Text ()
 collectPrize CollectPrizeParams {..} = do
@@ -276,27 +357,26 @@ findInitalAmount fundId o = case _ciTxOutDatum o of
   Left _ -> False
   Right (Datum e) -> case PlutusTx.fromBuiltinData e of
     Nothing -> False
-    Just d -> vFundOwner d == fundId
+    Just d@QuadraDatum{..} -> case qCreateFund of 
+      Nothing -> False 
+      Just v@FundCreationDatum{..} -> vFundOwner == fundId
 
 findDonateMatchPool :: PaymentPubKeyHash -> ChainIndexTxOut -> Bool
 findDonateMatchPool fundId o = case _ciTxOutDatum o of
   Left _ -> False
   Right (Datum e) -> case PlutusTx.fromBuiltinData e of
     Nothing -> False
-    Just d -> vFundAddress d == fundId
+    Just d@QuadraDatum{..} -> case qContrPool of 
+      Nothing -> False
+      Just v@ConToMatchPool{..} -> vFundAddress == fundId
 
 findProjects :: PaymentPubKeyHash -> ChainIndexTxOut -> Bool
 findProjects fundId o = case _ciTxOutDatum o of
   Left _ -> False
   Right (Datum e) -> case PlutusTx.fromBuiltinData e of
     Nothing -> False
-    Just d -> vFundPayIdentifier d == fundId
-
-findVotes :: PaymentPubKeyHash -> ChainIndexTxOut -> Bool
-findVotes fundId o = case _ciTxOutDatum o of
-  Left _ -> False
-  Right (Datum e) -> case PlutusTx.fromBuiltinData e of
-    Nothing -> False
-    Just d -> vVoteFundIdentifier d == fundId
+    Just d@QuadraDatum{..} -> case qSubProject of 
+      Nothing -> False
+      Just v@ProjectSubmitDatum{..} -> vFundPayIdentifier == fundId 
 
 mkSchemaDefinitions ''QuadraSchema
