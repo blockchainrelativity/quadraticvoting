@@ -348,10 +348,14 @@ findAttachedDatums fundId = do
     _ -> throwError "utxos not found"
 
 endpoints :: Contract () QuadraSchema Text ()
-endpoints = awaitPromise (collectPrize') >> endpoints
+endpoints = awaitPromise (collectPrize' `select` start' `select` vote' `select` submit' `select` enroll') >> endpoints
   where
     collectPrize' = endpoint @"collectPrize" collectPrize
-
+    start' = endpoint @"start" start
+    vote' = endpoint @"vote" vote
+    submit' = endpoint @"submit project" submitProject
+    enroll' = endpoint @"contribute to pool" donateToPool
+    
 findInitalAmount :: PaymentPubKeyHash -> ChainIndexTxOut -> Bool
 findInitalAmount fundId o = case _ciTxOutDatum o of
   Left _ -> False
