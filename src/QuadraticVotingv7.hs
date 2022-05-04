@@ -12,6 +12,7 @@
 import Control.Monad hiding (fmap)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Map as Map
+import Data.Either as Either
 import Data.Text (Text)
 import Data.Void (Void)
 import GHC.Generics (Generic)
@@ -316,7 +317,7 @@ vote vp = do
 
 collectPrize :: forall w s. CollectPrizeParams -> Contract w s Text ()
 collectPrize CollectPrizeParams {..} = do
-  initalMatchPool <- Map.filter (findInitalAmount fundAddress) <$> utxosAt scrAddress
+  initalMatchPool<- Map.map (findInitalAmount fundAddress) <$> utxosAt scrAddress
   donatedMatchPool <- Map.filter (findDonateMatchPool fundAddress) <$> utxosAt scrAddress
   projects <- Map.filter (findProjects fundAddress) <$> utxosAt scrAddress
   votes <- findAttachedDatums fundAddress
@@ -324,13 +325,12 @@ collectPrize CollectPrizeParams {..} = do
   --let countOfVotes = toInteger (Map.size votes)
   --let listOfDatumHashes = [(\datumHashes -> txOutDatum distinctUtxos) | distinctUtxos <- votes]
   --let listOfDatums = [(oref, o)| (oref,o) <- Map.toList votes]
-  logInfo @String $ printf "prize collected"
+  logInfo @String $ printf "prize collected" 
 
---QUESTION ======= Why is it a paired tuple ?
+--QUESTION ======= Why is it a paired tuple
 
-findAttachedDatums ::
-  PaymentPubKeyHash ->
-  Contract w s Text [(TxOutRef, ChainIndexTxOut, VotingActionDatum)]
+
+findAttachedDatums :: PaymentPubKeyHash -> Contract w s Text [(TxOutRef, ChainIndexTxOut, VotingActionDatum)]
 findAttachedDatums fundId = do
   utxos <- utxosAt $ scriptHashAddress valHash
   let theDatums =
@@ -356,15 +356,17 @@ endpoints = awaitPromise (collectPrize' `select` start' `select` vote' `select` 
     submit' = endpoint @"submit project" submitProject
     enroll' = endpoint @"contribute to pool" donateToPool
     
-findInitalAmount :: PaymentPubKeyHash -> ChainIndexTxOut -> Bool
+findInitalAmount :: PaymentPubKeyHash -> ChainIndexTxOut -> Contract w s Text (FundCreationDatum)
 findInitalAmount fundId o = case _ciTxOutDatum o of
-  Left _ -> False
+  Left _ -> throwError "inital utxo not found"
   Right (Datum e) -> case PlutusTx.fromBuiltinData e of
-    Nothing -> False
+    Nothing -> throwError "inital utxo not found"
     Just d@QuadraDatum{..} -> case qCreateFund of 
-      Nothing -> False 
-      Just v@FundCreationDatum{..} -> vFundOwner == fundId
-
+      Nothing -> throwError "inital utxo not found"
+      Just v@FundCreationDatum{..} -> case vFundOwner of 
+        fundId -> return (v)
+        _      -> throwError "inital utxo not found"
+      
 findDonateMatchPool :: PaymentPubKeyHash -> ChainIndexTxOut -> Bool
 findDonateMatchPool fundId o = case _ciTxOutDatum o of
   Left _ -> False
