@@ -9,10 +9,15 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
+
+
 import Control.Monad hiding (fmap)
+import Data.List (groupBy, sortOn, foldr1)
 import Data.Aeson (FromJSON, ToJSON)
+import Data.Function (on)
 import Data.Map as Map
 import Data.Text (Text)
+import Control.Lens
 import Data.Void (Void)
 import GHC.Generics (Generic)
 import Ledger hiding (singleton)
@@ -29,8 +34,9 @@ import qualified PlutusTx
 import qualified PlutusTx.Builtins as Builtins
 import PlutusTx.Prelude (BuiltinByteString)
 import PlutusTx.Prelude hiding (Semigroup (..), unless)
+import Data.Tuple
 import Text.Printf (printf)
-import Prelude (IO, Semigroup (..), Show, String, show, toInteger, (^))
+import Prelude (IO, Semigroup (..), Show, String, show, toInteger, Float ,Int,(^), sqrt, fromIntegral, div, read, sum, Num, Ord, snd, fst, unzip, Integral)
 
 
 data FundCreationDatum = FundCreationDatum
@@ -74,13 +80,12 @@ instance Eq ProjectSubmitDatum where
 PlutusTx.unstableMakeIsData ''ProjectSubmitDatum
 PlutusTx.makeLift ''ProjectSubmitDatum
 
--- why do we need action name here ? 
 data VotingActionDatum = VotingActionDatum
   { vProjectToVote :: PaymentPubKeyHash,
     vVoterPayAddress :: PaymentPubKeyHash,
     vAdaLovelaceValue :: Integer,
-    vVoteFundIdentifier :: PaymentPubKeyHash,
-    vActionName :: BuiltinByteString
+    vVoteFundIdentifier :: PaymentPubKeyHash
+    --vActionName :: BuiltinByteString
   }
   deriving (Show)
 
@@ -91,7 +96,6 @@ instance Eq VotingActionDatum where
       && (vVoterPayAddress b == vVoterPayAddress c)
       && (vAdaLovelaceValue b == vAdaLovelaceValue c)
       && (vVoteFundIdentifier b == vVoteFundIdentifier c)
-      && (vActionName b == vActionName c)
 
 PlutusTx.unstableMakeIsData ''VotingActionDatum
 PlutusTx.makeLift ''VotingActionDatum
@@ -159,9 +163,6 @@ mkValidator dat redeemer ctx =
         Nothing -> True
         Just ConToMatchPool {..} -> traceIfFalse "not correct inputs to contribute to pool" (enoughAda vPrizeFund) 
   where
-    -- here we will now start with other action types
-    -- Vote             -> toimplement...
-    -- COntributeToPool -> toimplement...
 
     info :: TxInfo
     info = scriptContextTxInfo ctx
@@ -173,7 +174,7 @@ mkValidator dat redeemer ctx =
     enoughAda votingAda = votingAda >= minVotingAda
     
     correctProportion :: [Integer] -> Bool
-    correctProportion proportion = sum proportion == 1 
+    correctProportion proportion = Prelude.sum proportion == 1 
 
 data QuadraVoting
 
@@ -199,7 +200,7 @@ scrAddress :: Ledger.Address
 scrAddress = scriptAddress validator
 
 data CollectPrizeParams = CollectPrizeParams
-  { controllerAddress :: PaymentPubKeyHash, --(Snapbrillia's first)
+  { controllerAddress :: PaymentPubKeyHash, 
     fundAddress :: PaymentPubKeyHash
   }
   deriving (Generic, ToJSON, FromJSON, ToSchema)
@@ -302,8 +303,7 @@ vote vp = do
         qVoting = Just (VotingActionDatum { vProjectToVote = projectToVote vp,
               vVoterPayAddress = pkh ,
               vAdaLovelaceValue = adaLoveLaceAmount vp,
-              vVoteFundIdentifier = voteFundIdentifier vp,
-              vActionName = actionName vp
+              vVoteFundIdentifier = voteFundIdentifier vp
             }),
         qCreateFund    = Nothing,
         qSubProject = Nothing,
@@ -314,19 +314,57 @@ vote vp = do
   void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
   logInfo @String $ printf "created fund "
 
+
+-- Quadratic Formula & Collect Funds Functionality ---------------
+------------------------------------------------------------------
+
 collectPrize :: forall w s. CollectPrizeParams -> Contract w s Text ()
 collectPrize CollectPrizeParams {..} = do
+  -- Retrieving all datums apart from Voting datums
   initalMatchPool <- Map.filter (findInitalAmount fundAddress) <$> utxosAt scrAddress
   donatedMatchPool <- Map.filter (findDonateMatchPool fundAddress) <$> utxosAt scrAddress
   projects <- Map.filter (findProjects fundAddress) <$> utxosAt scrAddress
+
+  -- Retrieving all the datums related to Votes
   votes <- findAttachedDatums fundAddress
-  -- Map.filter (findVotes fundAddress) <$> utxosAt scrAddress
-  --let countOfVotes = toInteger (Map.size votes)
-  --let listOfDatumHashes = [(\datumHashes -> txOutDatum distinctUtxos) | distinctUtxos <- votes]
-  --let listOfDatums = [(oref, o)| (oref,o) <- Map.toList votes]
+  let numberOfVotes      = length votes 
+  let listOfVoteDatums   = getThird votes 
+  let groupVotingAmounts = [ (vAdaLovelaceValue x, vProjectToVote x) | x <- listOfVoteDatums]
+  let groupVotingPowers  = [ ((round . getSquareRoot) ((x^. _1) `div` 1000000), x^. _2)| x <- groupVotingAmounts]
+  --let listOverallPowers  = [ x^._1 | x <- groupVotingPowers]
+  --let floatToStringVPs   = [ show x | x <- listOverallPowers]
+  --let stringToIntVPs     = [ read x :: Int | x <- floatToStringVPs]
+  --let totalValueVP       = Prelude.sum stringToIntVPs
+
+  --let votingPowersGroupedByProject = sumByProject groupVotingPowers
+  -- Loging outputs
+  logInfo @String $ printf $ (show listOfVoteDatums)
   logInfo @String $ printf "prize collected"
 
---QUESTION ======= Why is it a paired tuple ?
+  where
+     -- extract third element of tuple
+    getThird :: [(a,b,c)] -> [c]
+    getThird [(a,b,c)] = [c]
+
+    -- Get square root of x
+    getSquareRoot x = (sqrt . fromIntegral) x
+
+    sumByProject :: (AdditiveSemigroup a, Num a, Prelude.Ord b, Eq b) => [(a, b)] -> [(a, b)]
+    sumByProject dict 
+        = fmap sumValues              -- For each group apply the function sum Values
+        $ groupBy equalName           -- Notice that group for list only works if element are consecutive, that the reason of sorting first.
+        $ sortOn Prelude.snd dict             -- Sort on the snd component of the tuple, i.e. the key
+        where 
+          equalName (_, n) (_, m) =  n == m        -- Returns True if two keys are equal
+          sumValues = foldr1 sumTuple              -- fold/reduce a list using the sumTuple function
+          sumTuple (v2, n) (v1 , _) = (v1 + v2, n) -- Returns the same key and the added values
+    
+    -- mapFst f (a, b) = (f a, b)
+    --groupedVotingPowersfn vps = Map.map (mapFst head) $ Map.map unzip $ groupBy ((==) `on` Prelude.fst) $ sort vps
+
+
+
+
 
 findAttachedDatums ::
   PaymentPubKeyHash ->

@@ -217,16 +217,13 @@ data CollectPrizeParams = CollectPrizeParams
 type QuadraSchema =
   Endpoint "collectPrize" CollectPrizeParams
 
+
 collectPrize :: forall w s. CollectPrizeParams -> Contract w s Text ()
 collectPrize CollectPrizeParams {..} = do
   initalMatchPool <- Map.filter (findInitalAmount fundAddress) <$> utxosAt scrAddress
   donatedMatchPool <- Map.filter (findDonateMatchPool fundAddress) <$> utxosAt scrAddress
   projects <- Map.filter (findProjects fundAddress) <$> utxosAt scrAddress
   votes <- findAttachedDatums fundAddress
-  -- Map.filter (findVotes fundAddress) <$> utxosAt scrAddress
-  --let countOfVotes = toInteger (Map.size votes)
-  --let listOfDatumHashes = [(\datumHashes -> txOutDatum distinctUtxos) | distinctUtxos <- votes]
-  --let listOfDatums = [(oref, o)| (oref,o) <- Map.toList votes]
   logInfo @String $ printf "prize collected"
 
 -- Write the function that searches for utxos, structure them as lists, and returns a list of two paired tuples (i.e [(txOutRef, votingDatums)]

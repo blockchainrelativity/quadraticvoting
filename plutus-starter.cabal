@@ -52,4 +52,6 @@ library
       plutus-tx-plugin,
       plutus-tx,
       plutus-ledger,
+      text,
+      lens
     hs-source-dirs: src examples/src
