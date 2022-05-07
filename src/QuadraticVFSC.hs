@@ -321,18 +321,13 @@ vote vp = do
 
 collectPrize :: forall w s. CollectPrizeParams -> Contract w s Text ()
 collectPrize CollectPrizeParams {..} = do
-<<<<<<< HEAD
   -- Retrieving all datums apart from Voting datums
   initalMatchPool <- Map.filter (findInitalAmount fundAddress) <$> utxosAt scrAddress
-=======
-  initalMatchPool<- Map.map (findInitalAmount fundAddress) <$> utxosAt scrAddress
->>>>>>> 9bf6b8fe7f7e963199bc6dcb78e4a6f70bbc9452
   donatedMatchPool <- Map.filter (findDonateMatchPool fundAddress) <$> utxosAt scrAddress
   projects <- Map.filter (findProjects fundAddress) <$> utxosAt scrAddress
 
   -- Retrieving all the datums related to Votes
   votes <- findAttachedDatums fundAddress
-<<<<<<< HEAD
   let numberOfVotes      = length votes 
   let listOfVoteDatums   = getThird votes 
   let groupVotingAmounts = [ (vAdaLovelaceValue x, vProjectToVote x) | x <- listOfVoteDatums]
@@ -368,18 +363,6 @@ collectPrize CollectPrizeParams {..} = do
     -- mapFst f (a, b) = (f a, b)
     --groupedVotingPowersfn vps = Map.map (mapFst head) $ Map.map unzip $ groupBy ((==) `on` Prelude.fst) $ sort vps
 
-
-
-
-=======
-  -- Map.filter (findVotes fundAddress) <$> utxosAt scrAddress
-  --let countOfVotes = toInteger (Map.size votes)
-  --let listOfDatumHashes = [(\datumHashes -> txOutDatum distinctUtxos) | distinctUtxos <- votes]
-  --let listOfDatums = [(oref, o)| (oref,o) <- Map.toList votes]
-  logInfo @String $ printf "prize collected" 
-
---QUESTION ======= Why is it a paired tuple
->>>>>>> 9bf6b8fe7f7e963199bc6dcb78e4a6f70bbc9452
 
 
 findAttachedDatums :: PaymentPubKeyHash -> Contract w s Text [(TxOutRef, ChainIndexTxOut, VotingActionDatum)]
