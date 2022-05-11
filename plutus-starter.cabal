@@ -54,4 +54,4 @@ library
       plutus-ledger,
       text,
       lens
-    hs-source-dirs: src examples/src
+    hs-source-dirs: src 

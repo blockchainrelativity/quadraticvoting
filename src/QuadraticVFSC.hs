@@ -9,14 +9,15 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-
+module QuadraticVFSC where
 
 import Control.Monad hiding (fmap)
-import Data.List (groupBy, sortOn, foldr1)
+import Data.List (groupBy, sortOn)
+import Data.Foldable (foldr1)
 import Data.Aeson (FromJSON, ToJSON)
+import PlutusTx.Sqrt
 import Data.Function (on)
 import Data.Map as Map
-import Data.Either as Either
 import Data.Text (Text)
 import Control.Lens
 import Data.Void (Void)
@@ -328,16 +329,15 @@ collectPrize CollectPrizeParams {..} = do
 
   -- Retrieving all the datums related to Votes
   votes <- findAttachedDatums fundAddress
-  let numberOfVotes      = length votes 
-  let listOfVoteDatums   = getThird votes 
-  let groupVotingAmounts = [ (vAdaLovelaceValue x, vProjectToVote x) | x <- listOfVoteDatums]
-  let groupVotingPowers  = [ ((round . getSquareRoot) ((x^. _1) `div` 1000000), x^. _2)| x <- groupVotingAmounts]
-  --let listOverallPowers  = [ x^._1 | x <- groupVotingPowers]
-  --let floatToStringVPs   = [ show x | x <- listOverallPowers]
-  --let stringToIntVPs     = [ read x :: Int | x <- floatToStringVPs]
-  --let totalValueVP       = Prelude.sum stringToIntVPs
+  let numberOfVotes          = length votes 
+  let listOfVoteDatums       = getThird votes
+  let groupVotingAmounts     = [ (vAdaLovelaceValue x, vProjectToVote x) | x <- listOfVoteDatums] 
+  let parseVotingPowers      = [ (show $ getSquareRoot ((x^. _1) `div` 1000000), x^. _2)| x <- groupVotingAmounts]
+  let finalGroupVotingPowers = [ (read $ x^._1 :: Integer ,x^._2)| x <- parseVotingPowers ]
+  let listOverallPowers      = [ x^._1 | x <- finalGroupVotingPowers]
+  let totalValueVP       = Prelude.sum listOverallPowers
+  let votingPowersGroupedByProject = sumByProject finalGroupVotingPowers
 
-  --let votingPowersGroupedByProject = sumByProject groupVotingPowers
   -- Loging outputs
   logInfo @String $ printf $ (show listOfVoteDatums)
   logInfo @String $ printf "prize collected"
@@ -348,24 +348,36 @@ collectPrize CollectPrizeParams {..} = do
     getThird [(a,b,c)] = [c]
 
     -- Get square root of x
-    getSquareRoot x = (sqrt . fromIntegral) x
+    getSquareRoot :: Integer -> Float -- Added Solution
+    getSquareRoot x = (sqrt . fromIntegral) x -- sqrt( fromIntegral(x))
 
-    sumByProject :: (AdditiveSemigroup a, Num a, Prelude.Ord b, Eq b) => [(a, b)] -> [(a, b)]
+
+    --   Parse the list of tuples, group it by project so we can calculate VP per project
+    --   function -> map (mapFst head) $ map unzip $ groupBy ((==) `on` fst) $ sort groupVotingPowers
+    --   example list format :: [("Nick",10),("Nick",20),("George",10),("George",20)]
+    --   example result output: [("Nick",30),("George",30)]
+
+    sumByProject :: (Num a, AdditiveSemigroup a, AdditiveSemigroup Integer, Prelude.Ord b, Eq b) => [(a, b)] -> [(a, b)] -- Added Solution
     sumByProject dict 
-        = fmap sumValues              -- For each group apply the function sum Values
-        $ groupBy equalName           -- Notice that group for list only works if element are consecutive, that the reason of sorting first.
-        $ sortOn Prelude.snd dict             -- Sort on the snd component of the tuple, i.e. the key
+        = fmap sumValues              
+        $ groupBy equalName           
+        $ sortOn Prelude.snd dict        
         where 
-          equalName (_, n) (_, m) =  n == m        -- Returns True if two keys are equal
-          sumValues = foldr1 sumTuple              -- fold/reduce a list using the sumTuple function
-          sumTuple (v2, n) (v1 , _) = (v1 + v2, n) -- Returns the same key and the added values
+          equalName (_, n) (_, m) =  n == m   
+          sumValues = foldr1 sumTuple       
+          sumValues :: (AdditiveSemigroup a) => [(a, b1)] -> (a, b1) -- Added solution
+          sumTuple (v2, n) (v1 , _) = (v1 + v2, n) 
     
     -- mapFst f (a, b) = (f a, b)
     --groupedVotingPowersfn vps = Map.map (mapFst head) $ Map.map unzip $ groupBy ((==) `on` Prelude.fst) $ sort vps
 
 
 
-findAttachedDatums :: PaymentPubKeyHash -> Contract w s Text [(TxOutRef, ChainIndexTxOut, VotingActionDatum)]
+
+
+findAttachedDatums ::
+  PaymentPubKeyHash ->
+  Contract w s Text [(TxOutRef, ChainIndexTxOut, VotingActionDatum)]
 findAttachedDatums fundId = do
   utxos <- utxosAt $ scriptHashAddress valHash
   let theDatums =
@@ -391,17 +403,15 @@ endpoints = awaitPromise (collectPrize' `select` start' `select` vote' `select` 
     submit' = endpoint @"submit project" submitProject
     enroll' = endpoint @"contribute to pool" donateToPool
     
-findInitalAmount :: PaymentPubKeyHash -> ChainIndexTxOut -> Contract w s Text (FundCreationDatum)
+findInitalAmount :: PaymentPubKeyHash -> ChainIndexTxOut -> Bool
 findInitalAmount fundId o = case _ciTxOutDatum o of
-  Left _ -> throwError "inital utxo not found"
+  Left _ -> False
   Right (Datum e) -> case PlutusTx.fromBuiltinData e of
-    Nothing -> throwError "inital utxo not found"
+    Nothing -> False
     Just d@QuadraDatum{..} -> case qCreateFund of 
-      Nothing -> throwError "inital utxo not found"
-      Just v@FundCreationDatum{..} -> case vFundOwner of 
-        fundId -> return (v)
-        _      -> throwError "inital utxo not found"
-      
+      Nothing -> False 
+      Just v@FundCreationDatum{..} -> vFundOwner == fundId
+
 findDonateMatchPool :: PaymentPubKeyHash -> ChainIndexTxOut -> Bool
 findDonateMatchPool fundId o = case _ciTxOutDatum o of
   Left _ -> False
@@ -421,3 +431,4 @@ findProjects fundId o = case _ciTxOutDatum o of
       Just v@ProjectSubmitDatum{..} -> vFundPayIdentifier == fundId 
 
 mkSchemaDefinitions ''QuadraSchema
+
