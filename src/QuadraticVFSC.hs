@@ -327,6 +327,11 @@ collectPrize CollectPrizeParams {..} = do
   donatedMatchPool <- Map.map (findDonateMatchPool fundAddress) <$> utxosAt scrAddress
   projects <- Map.map (findProjects fundAddress) <$> utxosAt scrAddress
 
+  -- Retriving value from datum to get total amount of money in this fund
+  let initalAmount =  vPrizeAmount $ snd $ head $ Map.toList (initalMatchPool)  
+  let donatedAmount = [vPrizeFund (snd x) | x <- Map.toList donatedMatchPool ]
+  let totalDonatedAmount = sum donatedAmount
+
   -- Retrieving all the datums related to Votes
   votes <- findAttachedDatums fundAddress
   let numberOfVotes          = length votes 
@@ -403,38 +408,38 @@ endpoints = awaitPromise (collectPrize' `select` start' `select` vote' `select` 
     submit' = endpoint @"submit project" submitProject
     enroll' = endpoint @"contribute to pool" donateToPool
     
-findInitalAmount :: PaymentPubKeyHash -> ChainIndexTxOut -> Contract w s Text (FundCreationDatum)
+findInitalAmount :: PaymentPubKeyHash -> ChainIndexTxOut -> FundCreationDatum
 findInitalAmount fundId o = case _ciTxOutDatum o of
-  Left _ -> throwError "inital utxo not found"
+  Left _ -> Prelude.error "not found"
   Right (Datum e) -> case PlutusTx.fromBuiltinData e of
-    Nothing -> throwError "inital utxo not found"
+    Nothing -> Prelude.error "not found"
     Just d@QuadraDatum{..} -> case qCreateFund of 
-      Nothing -> throwError "inital utxo not found"
+      Nothing -> Prelude.error "not found"
       Just v@FundCreationDatum{..} -> case vFundOwner of 
-        fundId -> return (v)
-        _      -> throwError "inital utxo not found"
+        fundId -> v
+        _      -> Prelude.error "not found"
 
-findDonateMatchPool :: PaymentPubKeyHash -> ChainIndexTxOut -> Contract w s Text (ConToMatchPool)
+findDonateMatchPool :: PaymentPubKeyHash -> ChainIndexTxOut -> ConToMatchPool
 findDonateMatchPool fundId o = case _ciTxOutDatum o of
-  Left _ -> throwError"not found"
+  Left _ -> Prelude.error "not found"
   Right (Datum e) -> case PlutusTx.fromBuiltinData e of
-    Nothing -> throwError "not found"
+    Nothing -> Prelude.error "not found"
     Just d@QuadraDatum{..} -> case qContrPool of 
-      Nothing -> throwError "not found"
+      Nothing -> Prelude.error "not found"
       Just v@ConToMatchPool{..} -> case vFundAddress of 
-        fundId -> return (v)
-        _      -> throwError "not found"
+        fundId -> v
+        _      -> Prelude.error "not found"
 
-findProjects :: PaymentPubKeyHash -> ChainIndexTxOut -> Contract w s Text (ProjectSubmitDatum)
+findProjects :: PaymentPubKeyHash -> ChainIndexTxOut -> ProjectSubmitDatum
 findProjects fundId o = case _ciTxOutDatum o of
-  Left _ -> throwError "not found"
+  Left _ -> Prelude.error "not found"
   Right (Datum e) -> case PlutusTx.fromBuiltinData e of
-    Nothing -> throwError "not found"
+    Nothing -> Prelude.error "not found"
     Just d@QuadraDatum{..} -> case qSubProject of 
-      Nothing -> throwError "not found"
+      Nothing -> Prelude.error "not found"
       Just v@ProjectSubmitDatum{..} -> case vFundPayIdentifier of
-        fundId -> return (v)
-        _      -> throwError "not found" 
+        fundId -> v
+        _      -> Prelude.error "not found" 
 
 mkSchemaDefinitions ''QuadraSchema
 
