@@ -9,7 +9,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-module QuadraticVFSC where
+--module QuadraticVFSC where
 
 import Control.Monad hiding (fmap)
 import Data.List (groupBy, sortOn)
@@ -38,7 +38,7 @@ import PlutusTx.Prelude (BuiltinByteString)
 import PlutusTx.Prelude hiding (Semigroup (..), unless)
 import Data.Tuple
 import Text.Printf (printf)
-import Prelude (IO, Semigroup (..), Show, String, show, toInteger, Float ,Int,(^), sqrt, fromIntegral, div, read, sum, Num, Ord, snd, fst, unzip, Integral)
+import Prelude (IO, Semigroup (..), Show, String, show, toInteger, Float ,Int,(^),(/), sqrt, fromIntegral, div, read, sum, Num, Ord, snd, fst, unzip, Integral, error, sum, Fractional)
 
 
 data FundCreationDatum = FundCreationDatum
@@ -177,6 +177,9 @@ mkValidator dat redeemer ctx =
     
     correctProportion :: [Integer] -> Bool
     correctProportion proportion = Prelude.sum proportion == 1 
+
+    --proportionCategory :: [Integer] -> [String] -> bool
+    -- proportionCategory xs ys = (Map.size xs) == (Map.size ys)
 data QuadraVoting
 
 instance Scripts.ValidatorTypes QuadraVoting where
@@ -327,12 +330,12 @@ collectPrize CollectPrizeParams {..} = do
   projects <- Map.map (findProjects fundAddress) <$> utxosAt scrAddress
 
   -- Retriving value from datum to get total amount of money in this fund
-  let initalAmount =  vPrizeAmount $ snd $ head $ Map.toList (initalMatchPool)  
-  let donatedAmount = [vPrizeFund (snd x) | x <- Map.toList donatedMatchPool ]
-  let totalFundAmount = (sum donatedAmount) + initalAmount
+  let initalAmount =  vPrizeAmount $ Prelude.snd $ head $ Map.toList (initalMatchPool)  
+  let donatedAmount = [vPrizeFund (Prelude.snd x) | x <- Map.toList donatedMatchPool ]
+  let totalFundAmount = (Prelude.sum donatedAmount) + initalAmount
 
   -- Distribute fund to each catgory of projects
-  let ratio  = vPrizeDistributionRatio $ snd $ head $ Map.toList initalMatchPool
+  let ratio  = vPrizeDistributionRatio $ Prelude.snd $ head $ Map.toList initalMatchPool
   let distributedRatio = [totalFundAmount * x | x <- ratio]
 
 
@@ -346,6 +349,11 @@ collectPrize CollectPrizeParams {..} = do
   let listOverallPowers      = [ x^._1 | x <- finalGroupVotingPowers]
   let totalValueVP       = Prelude.sum listOverallPowers
   let votingPowersGroupedByProject = sumByProject finalGroupVotingPowers
+  let integralVPowerRatioByProject    = [ ( fromIntegral (x^._1), x^._2) | x <- votingPowersGroupedByProject]
+  let ratioVPByProject                = [ ( x^._1 `div` totalValueVP, x^._2)| x <- integralVPowerRatioByProject]
+  let quadraticInitialFundsDistribution      = [ (x^._1 * initalAmount, x^._2)| x <- ratioVPByProject]
+
+-- Do the same thing for additional donated amounts, and last step -> distribute them
 
   -- Loging outputs
   logInfo @String $ printf $ (show listOfVoteDatums)
@@ -421,6 +429,7 @@ findInitalAmount fundId o = case _ciTxOutDatum o of
       Nothing -> Prelude.error "not found"
       Just v@FundCreationDatum{..} -> case vFundOwner of 
         fundId -> v
+        _      -> Prelude.error "not found"
 
 findDonateMatchPool :: PaymentPubKeyHash -> ChainIndexTxOut -> ConToMatchPool
 findDonateMatchPool fundId o = case _ciTxOutDatum o of
@@ -431,6 +440,7 @@ findDonateMatchPool fundId o = case _ciTxOutDatum o of
       Nothing -> Prelude.error "not found"
       Just v@ConToMatchPool{..} -> case vFundAddress of 
         fundId -> v
+        _      -> Prelude.error "not found"
 
 findProjects :: PaymentPubKeyHash -> ChainIndexTxOut -> ProjectSubmitDatum
 findProjects fundId o = case _ciTxOutDatum o of
@@ -441,6 +451,6 @@ findProjects fundId o = case _ciTxOutDatum o of
       Nothing -> Prelude.error "not found"
       Just v@ProjectSubmitDatum{..} -> case vFundPayIdentifier of
         fundId -> v
+        _      -> Prelude.error "not found" 
 
 mkSchemaDefinitions ''QuadraSchema
-
