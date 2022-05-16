@@ -9,17 +9,11 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-module QuadraticVFSC where
-
 import Control.Monad hiding (fmap)
-import Data.List (groupBy, sortOn)
-import Data.Foldable (foldr1)
 import Data.Aeson (FromJSON, ToJSON)
-import PlutusTx.Sqrt
-import Data.Function (on)
 import Data.Map as Map
+import Data.Either as Either
 import Data.Text (Text)
-import Control.Lens
 import Data.Void (Void)
 import GHC.Generics (Generic)
 import Ledger hiding (singleton)
@@ -36,9 +30,8 @@ import qualified PlutusTx
 import qualified PlutusTx.Builtins as Builtins
 import PlutusTx.Prelude (BuiltinByteString)
 import PlutusTx.Prelude hiding (Semigroup (..), unless)
-import Data.Tuple
 import Text.Printf (printf)
-import Prelude (IO, Semigroup (..), Show, String, show, toInteger, Float ,Int,(^), sqrt, fromIntegral, div, read, sum, Num, Ord, snd, fst, unzip, Integral)
+import Prelude (IO, Semigroup (..), Show, String, show, toInteger, (^),error)
 
 
 data FundCreationDatum = FundCreationDatum
@@ -82,12 +75,13 @@ instance Eq ProjectSubmitDatum where
 PlutusTx.unstableMakeIsData ''ProjectSubmitDatum
 PlutusTx.makeLift ''ProjectSubmitDatum
 
+-- why do we need action name here ? 
 data VotingActionDatum = VotingActionDatum
   { vProjectToVote :: PaymentPubKeyHash,
     vVoterPayAddress :: PaymentPubKeyHash,
     vAdaLovelaceValue :: Integer,
-    vVoteFundIdentifier :: PaymentPubKeyHash
-    --vActionName :: BuiltinByteString
+    vVoteFundIdentifier :: PaymentPubKeyHash,
+    vActionName :: BuiltinByteString
   }
   deriving (Show)
 
@@ -98,6 +92,7 @@ instance Eq VotingActionDatum where
       && (vVoterPayAddress b == vVoterPayAddress c)
       && (vAdaLovelaceValue b == vAdaLovelaceValue c)
       && (vVoteFundIdentifier b == vVoteFundIdentifier c)
+      && (vActionName b == vActionName c)
 
 PlutusTx.unstableMakeIsData ''VotingActionDatum
 PlutusTx.makeLift ''VotingActionDatum
@@ -165,6 +160,9 @@ mkValidator dat redeemer ctx =
         Nothing -> True
         Just ConToMatchPool {..} -> traceIfFalse "not correct inputs to contribute to pool" (enoughAda vPrizeFund) 
   where
+    -- here we will now start with other action types
+    -- Vote             -> toimplement...
+    -- COntributeToPool -> toimplement...
 
     info :: TxInfo
     info = scriptContextTxInfo ctx
@@ -176,10 +174,8 @@ mkValidator dat redeemer ctx =
     enoughAda votingAda = votingAda >= minVotingAda
     
     correctProportion :: [Integer] -> Bool
-    correctProportion proportion = Prelude.sum proportion == 1 
+    correctProportion proportion = sum proportion == 1 
 
-    proportionCategory :: [Integer] -> [String] -> bool
-    proportionCategory xs ys = (Map.size xs) == (Map.size ys)
 data QuadraVoting
 
 instance Scripts.ValidatorTypes QuadraVoting where
@@ -204,7 +200,7 @@ scrAddress :: Ledger.Address
 scrAddress = scriptAddress validator
 
 data CollectPrizeParams = CollectPrizeParams
-  { controllerAddress :: PaymentPubKeyHash, 
+  { controllerAddress :: PaymentPubKeyHash, --(Snapbrillia's first)
     fundAddress :: PaymentPubKeyHash
   }
   deriving (Generic, ToJSON, FromJSON, ToSchema)
@@ -307,7 +303,8 @@ vote vp = do
         qVoting = Just (VotingActionDatum { vProjectToVote = projectToVote vp,
               vVoterPayAddress = pkh ,
               vAdaLovelaceValue = adaLoveLaceAmount vp,
-              vVoteFundIdentifier = voteFundIdentifier vp
+              vVoteFundIdentifier = voteFundIdentifier vp,
+              vActionName = actionName vp
             }),
         qCreateFund    = Nothing,
         qSubProject = Nothing,
@@ -318,78 +315,25 @@ vote vp = do
   void $ awaitTxConfirmed $ getCardanoTxId ledgerTx
   logInfo @String $ printf "created fund "
 
-
--- Quadratic Formula & Collect Funds Functionality ---------------
-------------------------------------------------------------------
-
 collectPrize :: forall w s. CollectPrizeParams -> Contract w s Text ()
 collectPrize CollectPrizeParams {..} = do
-  -- Retrieving all datums apart from Voting datums
-  initalMatchPool <- Map.map (findInitalAmount fundAddress) <$> utxosAt scrAddress
-  donatedMatchPool <- Map.map (findDonateMatchPool fundAddress) <$> utxosAt scrAddress
-  projects <- Map.map (findProjects fundAddress) <$> utxosAt scrAddress
+  pkh <- ownPaymentPubKeyHash
+  initalMatchPool<- Map.map (findInitalAmount pkh) <$> utxosAt scrAddress
+  donatedMatchPool <- Map.map (findDonateMatchPool pkh) <$> utxosAt scrAddress
 
-  -- Retriving value from datum to get total amount of money in this fund
+  
   let initalAmount =  vPrizeAmount $ snd $ head $ Map.toList (initalMatchPool)  
   let donatedAmount = [vPrizeFund (snd x) | x <- Map.toList donatedMatchPool ]
-  let totalDonatedAmount = (sum donatedAmount) + initalAmount
+  let totalDonatedAmount = sum donatedAmount
+  -- Map.filter (findVotes fundAddress) <$> utxosAt scrAddress
+  --let countOfVotes = toInteger (Map.size votes)
+  --let listOfDatumHashes = [(\datumHashes -> txOutDatum distinctUtxos) | distinctUtxos <- votes]
+  --let listOfDatums = [(oref, o)| (oref,o) <- Map.toList votes]
+  logInfo @String $ printf "prize collected %s" (show totalAmount)
+--QUESTION ======= Why is it a paired tuple
 
-  -- Distribute fund to each catgory of projects
-  let ratio  = vPrizeDistributionRatio $ snd $ head $ Map.toList initalMatchPool
-  let distributedRatio = [totalFundAmount * x | x <- ratio]
-
-
-  -- Retrieving all the datums related to Votes
-  votes <- findAttachedDatums fundAddress
-  let numberOfVotes          = length votes 
-  let listOfVoteDatums       = getThird votes
-  let groupVotingAmounts     = [ (vAdaLovelaceValue x, vProjectToVote x) | x <- listOfVoteDatums] 
-  let parseVotingPowers      = [ (show $ getSquareRoot ((x^. _1) `div` 1000000), x^. _2)| x <- groupVotingAmounts]
-  let finalGroupVotingPowers = [ (read $ x^._1 :: Integer ,x^._2)| x <- parseVotingPowers ]
-  let listOverallPowers      = [ x^._1 | x <- finalGroupVotingPowers]
-  let totalValueVP       = Prelude.sum listOverallPowers
-  let votingPowersGroupedByProject = sumByProject finalGroupVotingPowers
-
-  -- Loging outputs
-  logInfo @String $ printf $ (show listOfVoteDatums)
-  logInfo @String $ printf "prize collected"
-
-  where
-     -- extract third element of tuple
-    getThird :: [(a,b,c)] -> [c]
-    getThird [(a,b,c)] = [c]
-
-    -- Get square root of x
-    getSquareRoot :: Integer -> Float -- Added Solution
-    getSquareRoot x = (sqrt . fromIntegral) x -- sqrt( fromIntegral(x))
-
-
-    --   Parse the list of tuples, group it by project so we can calculate VP per project
-    --   function -> map (mapFst head) $ map unzip $ groupBy ((==) `on` fst) $ sort groupVotingPowers
-    --   example list format :: [("Nick",10),("Nick",20),("George",10),("George",20)]
-    --   example result output: [("Nick",30),("George",30)]
-
-    sumByProject :: (Num a, AdditiveSemigroup a, AdditiveSemigroup Integer, Prelude.Ord b, Eq b) => [(a, b)] -> [(a, b)] -- Added Solution
-    sumByProject dict 
-        = fmap sumValues              
-        $ groupBy equalName           
-        $ sortOn Prelude.snd dict        
-        where 
-          equalName (_, n) (_, m) =  n == m   
-          sumValues = foldr1 sumTuple       
-          sumValues :: (AdditiveSemigroup a) => [(a, b1)] -> (a, b1) -- Added solution
-          sumTuple (v2, n) (v1 , _) = (v1 + v2, n) 
-    
-    -- mapFst f (a, b) = (f a, b)
-    --groupedVotingPowersfn vps = Map.map (mapFst head) $ Map.map unzip $ groupBy ((==) `on` Prelude.fst) $ sort vps
-
-
-
-
-
-findAttachedDatums ::
-  PaymentPubKeyHash ->
-  Contract w s Text [(TxOutRef, ChainIndexTxOut, VotingActionDatum)]
+ 
+findAttachedDatums :: PaymentPubKeyHash -> Contract w s Text [(TxOutRef, ChainIndexTxOut, VotingActionDatum)]
 findAttachedDatums fundId = do
   utxos <- utxosAt $ scriptHashAddress valHash
   let theDatums =
@@ -424,7 +368,7 @@ findInitalAmount fundId o = case _ciTxOutDatum o of
       Nothing -> Prelude.error "not found"
       Just v@FundCreationDatum{..} -> case vFundOwner of 
         fundId -> v
-        _      -> Prelude.error "not found"
+
 
 findDonateMatchPool :: PaymentPubKeyHash -> ChainIndexTxOut -> ConToMatchPool
 findDonateMatchPool fundId o = case _ciTxOutDatum o of
@@ -435,18 +379,15 @@ findDonateMatchPool fundId o = case _ciTxOutDatum o of
       Nothing -> Prelude.error "not found"
       Just v@ConToMatchPool{..} -> case vFundAddress of 
         fundId -> v
-        _      -> Prelude.error "not found"
 
-findProjects :: PaymentPubKeyHash -> ChainIndexTxOut -> ProjectSubmitDatum
+
+findProjects :: PaymentPubKeyHash -> ChainIndexTxOut -> Bool
 findProjects fundId o = case _ciTxOutDatum o of
-  Left _ -> Prelude.error "not found"
+  Left _ -> False
   Right (Datum e) -> case PlutusTx.fromBuiltinData e of
-    Nothing -> Prelude.error "not found"
+    Nothing -> False
     Just d@QuadraDatum{..} -> case qSubProject of 
-      Nothing -> Prelude.error "not found"
-      Just v@ProjectSubmitDatum{..} -> case vFundPayIdentifier of
-        fundId -> v
-        _      -> Prelude.error "not found" 
+      Nothing -> False
+      Just v@ProjectSubmitDatum{..} -> vFundPayIdentifier == fundId 
 
 mkSchemaDefinitions ''QuadraSchema
-
