@@ -177,9 +177,6 @@ mkValidator dat redeemer ctx =
     
     correctProportion :: [Integer] -> Bool
     correctProportion proportion = Prelude.sum proportion == 1 
-
-    proportionCategory :: [Integer] -> [String] -> bool
-    proportionCategory xs ys = (Map.size xs) == (Map.size ys)
 data QuadraVoting
 
 instance Scripts.ValidatorTypes QuadraVoting where
@@ -332,7 +329,7 @@ collectPrize CollectPrizeParams {..} = do
   -- Retriving value from datum to get total amount of money in this fund
   let initalAmount =  vPrizeAmount $ snd $ head $ Map.toList (initalMatchPool)  
   let donatedAmount = [vPrizeFund (snd x) | x <- Map.toList donatedMatchPool ]
-  let totalDonatedAmount = (sum donatedAmount) + initalAmount
+  let totalFundAmount = (sum donatedAmount) + initalAmount
 
   -- Distribute fund to each catgory of projects
   let ratio  = vPrizeDistributionRatio $ snd $ head $ Map.toList initalMatchPool
@@ -424,7 +421,6 @@ findInitalAmount fundId o = case _ciTxOutDatum o of
       Nothing -> Prelude.error "not found"
       Just v@FundCreationDatum{..} -> case vFundOwner of 
         fundId -> v
-        _      -> Prelude.error "not found"
 
 findDonateMatchPool :: PaymentPubKeyHash -> ChainIndexTxOut -> ConToMatchPool
 findDonateMatchPool fundId o = case _ciTxOutDatum o of
@@ -435,7 +431,6 @@ findDonateMatchPool fundId o = case _ciTxOutDatum o of
       Nothing -> Prelude.error "not found"
       Just v@ConToMatchPool{..} -> case vFundAddress of 
         fundId -> v
-        _      -> Prelude.error "not found"
 
 findProjects :: PaymentPubKeyHash -> ChainIndexTxOut -> ProjectSubmitDatum
 findProjects fundId o = case _ciTxOutDatum o of
@@ -446,7 +441,6 @@ findProjects fundId o = case _ciTxOutDatum o of
       Nothing -> Prelude.error "not found"
       Just v@ProjectSubmitDatum{..} -> case vFundPayIdentifier of
         fundId -> v
-        _      -> Prelude.error "not found" 
 
 mkSchemaDefinitions ''QuadraSchema
 
