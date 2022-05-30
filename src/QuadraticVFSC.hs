@@ -9,7 +9,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
---module QuadraticVFSC where
+module QuadraticVFSC where
 
 import Control.Monad hiding (fmap)
 import Data.List (groupBy, sortOn)

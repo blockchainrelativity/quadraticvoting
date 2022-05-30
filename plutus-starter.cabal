@@ -40,18 +40,23 @@ common lang
 
 library
     import: lang
-    exposed-modules:
+    exposed-modules: QuadraticVFOnChain
     build-depends:
       base >= 4.9 && < 5,
-      aeson,
-      bytestring,
-      containers,
-      freer-extras,
-      playground-common,
-      plutus-contract,
-      plutus-tx-plugin,
+      aeson -any,
+      bytestring -any,
+      containers -any,
+      freer-extras -any,
+      playground-common -any,
+      plutus-contract -any,
+      plutus-ledger -any,
+      plutus-ledger-api -any,
       plutus-tx,
-      plutus-ledger,
-      text,
-      lens
-    hs-source-dirs: src 
+      plutus-tx-plugin -any,
+      text -any,
+      lens -any,
+      openapi3,
+      QuickCheck,
+      data-default
+    hs-source-dirs: src
+    ghc-options: -fobject-code -fno-ignore-interface-pragmas -fno-omit-interface-pragmas
