@@ -136,7 +136,13 @@ instance Eq QVFDatum where
   CollectPrize        == CollectPrize        = True
   _                   == _                   = False
 
-PlutusTx.unstableMakeIsData ''QVFDatum
+PlutusTx.makeIsDataIndexed ''QVFDatum
+  [ ('CreateFund   , 0)
+  , ('SubmitProject, 1)
+  , ('Vote         , 2)
+  , ('Contribute   , 3)
+  , ('CollectPrize , 4)
+  ]
 PlutusTx.makeLift ''QVFDatum
 -- }}}
 
