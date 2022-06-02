@@ -120,10 +120,10 @@ PlutusTx.makeLift ''ContributionInfo
 -- THE DATUM
 -- {{{
 data QVFDatum
-  = CreateFund    FundCreationInfo
-  | SubmitProject ProjectSubmissionInfo
-  | Vote          VotingInfo
-  | Contribute    ContributionInfo
+  = CreateFund    !FundCreationInfo
+  | SubmitProject !ProjectSubmissionInfo
+  | Vote          !VotingInfo
+  | Contribute    !ContributionInfo
   | CollectPrize
   deriving (Show)
 

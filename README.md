@@ -13,7 +13,7 @@
   $ cd ~/plutus-apps
   $ nix-shell
   ```
-- Returns to this repository, and enter the repl to start playing around
+- Return to this repository, and enter the repl to start playing around
   with library functions:
   ```
   $ cd ~/quadraticvoting
