@@ -159,12 +159,12 @@ mkValidator datum _ _ =
       -- }}}
     Vote          VotingInfo            {..} ->
       -- {{{
-      traceIfFalse "not enough Ada to vote" $
+      traceIfFalse "Not enough ADA to vote." $
         enoughAda viAdaLovelaceValue
       -- }}}
     Contribute    ContributionInfo      {..} ->
       -- {{{
-      traceIfFalse "not correct inputs to contribute to pool" $
+      traceIfFalse "Incorrect inputs for contributing to pool." $
         enoughAda ciPrizeFund
       -- }}}
     SubmitProject ProjectSubmissionInfo {..} ->
