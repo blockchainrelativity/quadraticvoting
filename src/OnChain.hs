@@ -1,16 +1,17 @@
-{-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE DeriveAnyClass        #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE NoImplicitPrelude     #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TemplateHaskell       #-}
-{-# LANGUAGE TypeApplications      #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE TypeOperators         #-}
-{-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE NumericUnderscores    #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE NoImplicitPrelude   #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE NumericUnderscores  #-}
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
@@ -18,195 +19,107 @@
 module OnChain where
 
 
-import           Control.Monad              hiding (fmap)
-import           Data.Aeson                 (ToJSON, FromJSON)
-import           Data.Text                  (Text)
+import           Control.Monad        hiding (fmap)
+import           Data.Aeson           (ToJSON, FromJSON)
+import           Data.Text            (Text)
+import           GHC.Generics         (Generic)
 import           Plutus.Contract
-import           PlutusTx                   (Data (..))
+import           PlutusTx             (Data (..))
 import qualified PlutusTx
-import qualified PlutusTx.Builtins          as Builtins
-import           PlutusTx.Builtins.Internal (BuiltinInteger)
-import           PlutusTx.Prelude           hiding (Semigroup(..), unless)
-import           PlutusTx.Prelude           (BuiltinByteString)
+import qualified PlutusTx.Builtins    as Builtins
+import           PlutusTx.Builtins.Internal (BuiltinInteger, BuiltinString)
+import           PlutusTx.Prelude     hiding (Semigroup(..), unless)
+import           PlutusTx.Prelude     (BuiltinByteString)
+import           Prelude              (Show (..), String)
 import           Ledger
-import qualified Ledger.Typed.Scripts       as Scripts
-import           Ledger.Ada                 as Ada
-import           Prelude                    (Show (..), String)
-
-
--- FUND CREATION INFO
--- {{{
-data FundCreationInfo = FundCreationInfo
-  { fciFundOwner    :: !PaymentPubKeyHash
-  , fciPrizeAmount  :: !BuiltinInteger
-  , fciProjectLabel :: ![BuiltinByteString]
-  } deriving (Show)
-
-instance Eq FundCreationInfo where
-  {-# INLINABLE (==) #-}
-  a == b =
-       (fciFundOwner    a == fciFundOwner    b)
-    && (fciPrizeAmount  a == fciPrizeAmount  b)
-    && (fciProjectLabel a == fciProjectLabel b)
-
-PlutusTx.unstableMakeIsData ''FundCreationInfo
-PlutusTx.makeLift ''FundCreationInfo
--- }}}
-
-
--- PROJECT SUBMISSION INFO
--- {{{
-data ProjectSubmissionInfo = ProjectSubmissionInfo
-  { psiProjectOwner           :: !PaymentPubKeyHash
-  , psiProjectRegistrationFee :: !BuiltinInteger
-  , psiProjectCategory        :: !BuiltinByteString
-  , psiFundPayIdentifier      :: !PaymentPubKeyHash
-  } deriving (Show)
-
-instance Eq ProjectSubmissionInfo where
-  {-# INLINABLE (==) #-}
-  a == b =
-       (psiProjectOwner           a == psiProjectOwner           b)
-    && (psiProjectRegistrationFee a == psiProjectRegistrationFee b)
-    && (psiProjectCategory        a == psiProjectCategory        b)
-    && (psiFundPayIdentifier      a == psiFundPayIdentifier      b)
-
-PlutusTx.unstableMakeIsData ''ProjectSubmissionInfo
-PlutusTx.makeLift ''ProjectSubmissionInfo
--- }}}
-
-
--- VOTING INFO
--- {{{
-data VotingInfo = VotingInfo
-  { viProjectToVote      :: !PaymentPubKeyHash
-  , viVoterPayAddress    :: !PaymentPubKeyHash
-  , viAdaLovelaceValue   :: !BuiltinInteger
-  , viVoteFundIdentifier :: !PaymentPubKeyHash
-  } deriving (Show)
-
-instance Eq VotingInfo where
-  {-# INLINABLE (==) #-}
-  a == b =
-       (viProjectToVote      a == viProjectToVote      b)
-    && (viVoterPayAddress    a == viVoterPayAddress    b)
-    && (viAdaLovelaceValue   a == viAdaLovelaceValue   b)
-    && (viVoteFundIdentifier a == viVoteFundIdentifier b)
-
-PlutusTx.unstableMakeIsData ''VotingInfo
-PlutusTx.makeLift ''VotingInfo
--- }}}
-
-
--- CONTRIBUTION INFO
--- {{{
-data ContributionInfo = ContributionInfo
-  { ciFundAddress :: !PaymentPubKeyHash
-  , ciPrizeFund   :: !BuiltinInteger
-  }
-  deriving (Show)
-
-instance Eq ContributionInfo where
-  {-# INLINABLE (==) #-}
-  a == b =
-       (ciFundAddress a == ciFundAddress b)
-    && (ciPrizeFund   a == ciPrizeFund   b)
-
-PlutusTx.unstableMakeIsData ''ContributionInfo
-PlutusTx.makeLift ''ContributionInfo
--- }}}
-
-
--- THE DATUM
--- {{{
-data QVFDatum
-  = CreateFund    !FundCreationInfo
-  | SubmitProject !ProjectSubmissionInfo
-  | Vote          !VotingInfo
-  | Contribute    !ContributionInfo
-  | CollectPrize
-  deriving (Show)
-
-instance Eq QVFDatum where
-  {-# INLINABLE (==) #-}
-  CreateFund    info0 == CreateFund    info1 = info0 == info1
-  SubmitProject info0 == SubmitProject info1 = info0 == info1
-  Vote          info0 == Vote          info1 = info0 == info1
-  Contribute    info0 == Contribute    info1 = info0 == info1
-  CollectPrize        == CollectPrize        = True
-  _                   == _                   = False
-
-PlutusTx.makeIsDataIndexed ''QVFDatum
-  [ ('CreateFund   , 0)
-  , ('SubmitProject, 1)
-  , ('Vote         , 2)
-  , ('Contribute   , 3)
-  , ('CollectPrize , 4)
-  ]
-PlutusTx.makeLift ''QVFDatum
--- }}}
+import qualified Ledger.Scripts       as Scripts
+import           Ledger.Ada           as Ada
 
 
 -- THE VALIDATOR
 -- {{{
 {-# INLINABLE mkValidator #-}
-mkValidator :: QVFDatum -> () -> ScriptContext -> Bool
+mkValidator :: BuiltinData -> BuiltinData -> BuiltinData -> ()
 mkValidator datum _ _ =
   -- {{{
   let
-    enoughAda :: BuiltinInteger -> Bool
-    enoughAda = Builtins.lessThanInteger minAda
+    invalidDatum :: a -> ()
+    invalidDatum = const $ traceError "Invalid datum."
+
+    enoughAda :: BuiltinString -> BuiltinData -> ()
+    enoughAda errorMsg bd =
+      -- {{{
+      Builtins.matchData bd
+        (const invalidDatum) -- note that this handler required two parameters.
+        invalidDatum
+        invalidDatum
+        ( \ada ->
+            if ada >= minAda then
+              ()
+            else
+              traceError errorMsg
+        )
+        invalidDatum
+      -- }}}
+
+    constrHandler :: Integer -> [BuiltinData] -> ()
+    constrHandler index lst
+      | index == 0 =
+          -- {{{ CREATE FUND 
+          case lst of
+            [bFundOwner, iPrizeAmount, bProjectLabel] ->
+              enoughAda "Not enough ADA." iPrizeAmount
+            _  ->
+              invalidDatum ()
+          -- }}}
+      | index == 1 =
+          -- {{{ SUBMIT PROJECT 
+          case lst of
+            [bProjectOwner, iRegistrationFee, bProjectCategory, bFundPayIdentifier] ->
+              enoughAda "Not enough funds to register project." iRegistrationFee
+            _ ->
+              invalidDatum ()
+          -- }}}
+      | index == 2 =
+          -- {{{ VOTE 
+          case lst of
+            [bProjectToVote, bVotePayAddress, iAdaLovelaceValue, bVoteFundIdentifier] ->
+              enoughAda "Not enough ADA to vote." iAdaLovelaceValue
+            _ ->
+              invalidDatum ()
+          -- }}}
+      | index == 3 =
+          -- {{{ CONTRIBUTE 
+          case lst of
+            [bFundAddress, iPrizeFund] ->
+              enoughAda "Incorrect inputs for contribution to pool." iPrizeFund
+            _ ->
+              invalidDatum ()
+          -- }}}
+      | index == 4 =
+          -- {{{ COLLECT PRIZE 
+          () -- TODO
+          -- }}}
+      | otherwise  =
+          -- {{{ INVALID DATUM 
+          invalidDatum ()
+          -- }}}
   in
-  case datum of
-    CreateFund    FundCreationInfo      {..} ->
-      -- {{{
-      traceIfFalse "Not enough ADA." $
-        enoughAda fciPrizeAmount
-      -- }}}
-    Vote          VotingInfo            {..} ->
-      -- {{{
-      traceIfFalse "Not enough ADA to vote." $
-        enoughAda viAdaLovelaceValue
-      -- }}}
-    Contribute    ContributionInfo      {..} ->
-      -- {{{
-      traceIfFalse "Incorrect inputs for contributing to pool." $
-        enoughAda ciPrizeFund
-      -- }}}
-    SubmitProject ProjectSubmissionInfo {..} ->
-      -- {{{
-      traceIfFalse "Not enough funds to register project." $
-        enoughAda psiProjectRegistrationFee
-      -- }}}
-    CollectPrize                             ->
-      -- {{{
-      True -- TODO
-      -- }}}
+  Builtins.matchData datum
+    constrHandler -- constr
+    invalidDatum  -- map
+    invalidDatum  -- list
+    invalidDatum  -- integer
+    invalidDatum  -- bytestring
   -- }}}
 
 
-data QVF
-
-instance Scripts.ValidatorTypes QVF where
-  type DatumType    QVF = QVFDatum
-  type RedeemerType QVF = ()
-
-
-typedValidator :: Scripts.TypedValidator QVF
-typedValidator =
-  Scripts.mkTypedValidator @QVF
-    $$(PlutusTx.compile [||mkValidator||])
-    $$(PlutusTx.compile [||wrap||])
-  where
-    wrap = Scripts.wrapValidator @QVFDatum @()
-
-
 validator :: Validator
-validator = Scripts.validatorScript typedValidator
+validator = mkValidatorScript $$(PlutusTx.compile [|| mkValidator ||])
 
 
 valHash :: ValidatorHash
-valHash = Scripts.validatorHash typedValidator
+valHash = Scripts.validatorHash validator
 
 
 scrAddress :: Address
