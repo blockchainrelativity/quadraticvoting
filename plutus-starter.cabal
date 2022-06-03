@@ -60,3 +60,24 @@ library
       data-default
     hs-source-dirs: src
     ghc-options: -fobject-code -fno-ignore-interface-pragmas -fno-omit-interface-pragmas
+
+
+executable parse-datum-json
+  import:               lang
+  hs-source-dirs:       src/utils
+  main-is:              parse-datum-json.hs
+  ghc-options:          -threaded -rtsopts "-with-rtsopts=-T"
+
+  build-depends:      base >= 4.9 && < 5
+                      ,  cardano-api
+                      , cardano-ledger-alonzo
+                      , plutus-ledger
+                      , plutus-ledger-api
+                      , bytestring
+                      , plutus-tx -any
+                      , plutus-starter
+                      , aeson
+                      , utf8-string
+                      , cardano-addresses
+                      , text
+                      , memory
