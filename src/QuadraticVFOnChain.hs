@@ -20,9 +20,20 @@
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 --{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-module QuadraticVFOnChain where
+module QuadraticVFOnChain (validationScriptShortBs, 
+                           validationScript, 
+                           FundCreationDatum (..),
+                           ProjectSubmitDatum (..),
+                           VotingActionDatum (..),
+                           ConToMatchPool (..), 
+                           realValidator, 
+                           typedValidator, 
+                           script,
+                           valHash) where
 
 import Control.Monad hiding (fmap)
+import Cardano.Api.Shelley (PlutusScript (..), PlutusScriptV1)
+import Codec.Serialise
 import Data.List (groupBy, sortOn)
 import Data.Foldable (foldr1)
 import Data.Aeson (FromJSON, ToJSON)
@@ -32,10 +43,11 @@ import Data.Map as Map
 import Data.Text (Text)
 import Control.Lens
 import Data.Void (Void)
---import GHC.Integer
+import GHC.Integer
 import GHC.Generics (Generic)
 import Ledger hiding (singleton)
 import Ledger.Ada as Ada
+import Ledger.Address (PaymentPubKeyHash(..))
 import Ledger (Address)
 import Ledger.Constraints (TxConstraints)
 import qualified Ledger.Constraints as Constraints
@@ -45,6 +57,10 @@ import Playground.TH (mkKnownCurrencies, mkSchemaDefinitions)
 import Playground.Types (KnownCurrency (..))
 import Plutus.Contract
 import PlutusTx (Data (..))
+import qualified Ledger.Typed.Scripts as Scripts
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Short as SBS
+import qualified Plutus.V1.Ledger.Scripts as Plutus
 import qualified PlutusTx
 import qualified PlutusTx.Builtins as Builtins
 import PlutusTx.Prelude (BuiltinByteString)
@@ -216,3 +232,15 @@ valHash = Scripts.validatorHash typedValidator
 
 scrAddress :: Ledger.Address
 scrAddress = scriptAddress validator
+
+realValidator :: Ledger.Validator
+realValidator = Scripts.validatorScript typedValidator
+
+script :: Plutus.Script
+script = Plutus.unValidatorScript realValidator
+
+validationScriptShortBs :: SBS.ShortByteString
+validationScriptShortBs = SBS.toShort . LBS.toStrict $ serialise script
+
+validationScript :: PlutusScript PlutusScriptV1
+validationScript = PlutusScriptSerialised validationScriptShortBs
