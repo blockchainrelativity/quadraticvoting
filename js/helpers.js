@@ -42,10 +42,3 @@ function data_constr(indexStr, plutusDataVals) {
   );
   // }}}
 }
-
-export function createFundDatum(fundOwner, prizeAmount, labels) {
-  let foDatum = data_byteString(fundOwner);
-  let paDatum = data_integer(prizeAmount));
-  let lsDatum = data_list(labels.map(data_byteString));
-  return data_constr("0", [foDatum, paDatum, lsDatum]);
-}
