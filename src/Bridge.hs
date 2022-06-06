@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings     #-}
 
 
-module Bridge where
+module Bridge (writeFile) where
 
 
 import qualified Data.ByteString            as BS
