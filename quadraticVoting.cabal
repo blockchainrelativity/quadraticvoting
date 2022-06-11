@@ -14,7 +14,6 @@ License-files:       LICENSE
 library
   hs-source-dirs:      src
   exposed-modules:     OnChain
-                     , Bridge
   build-depends:       aeson
                      , base >= 4.9 && < 5
                      , bytestring

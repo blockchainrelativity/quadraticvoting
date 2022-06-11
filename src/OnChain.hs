@@ -34,114 +34,42 @@ import           Ledger.Ada                 as Ada
 import           Prelude                    (Show (..), String)
 
 
--- FUND CREATION INFO
+-- PROJECT INFO
 -- {{{
-data FundCreationInfo = FundCreationInfo
-  { fciFundOwner    :: !PaymentPubKeyHash
-  , fciPrizeAmount  :: !BuiltinInteger
-  , fciProjectLabel :: ![BuiltinByteString]
+data ProjectInfo = ProjectInfo
+  { piAddress :: !Address
+  , piLabel   :: !BuiltinByteString
   } deriving (Show)
 
-instance Eq FundCreationInfo where
+instance Eq ProjectInfo where
   {-# INLINABLE (==) #-}
   a == b =
-       (fciFundOwner    a == fciFundOwner    b)
-    && (fciPrizeAmount  a == fciPrizeAmount  b)
-    && (fciProjectLabel a == fciProjectLabel b)
+       (piAddress a == piAddress b)
+    && (piLabel   a == piLabel   b)
 
-PlutusTx.unstableMakeIsData ''FundCreationInfo
-PlutusTx.makeLift ''FundCreationInfo
--- }}}
-
-
--- PROJECT SUBMISSION INFO
--- {{{
-data ProjectSubmissionInfo = ProjectSubmissionInfo
-  { psiProjectOwner           :: !PaymentPubKeyHash
-  , psiProjectRegistrationFee :: !BuiltinInteger
-  , psiProjectCategory        :: !BuiltinByteString
-  , psiFundPayIdentifier      :: !PaymentPubKeyHash
-  } deriving (Show)
-
-instance Eq ProjectSubmissionInfo where
-  {-# INLINABLE (==) #-}
-  a == b =
-       (psiProjectOwner           a == psiProjectOwner           b)
-    && (psiProjectRegistrationFee a == psiProjectRegistrationFee b)
-    && (psiProjectCategory        a == psiProjectCategory        b)
-    && (psiFundPayIdentifier      a == psiFundPayIdentifier      b)
-
-PlutusTx.unstableMakeIsData ''ProjectSubmissionInfo
-PlutusTx.makeLift ''ProjectSubmissionInfo
--- }}}
-
-
--- VOTING INFO
--- {{{
-data VotingInfo = VotingInfo
-  { viProjectToVote      :: !PaymentPubKeyHash
-  , viVoterPayAddress    :: !PaymentPubKeyHash
-  , viAdaLovelaceValue   :: !BuiltinInteger
-  , viVoteFundIdentifier :: !PaymentPubKeyHash
-  } deriving (Show)
-
-instance Eq VotingInfo where
-  {-# INLINABLE (==) #-}
-  a == b =
-       (viProjectToVote      a == viProjectToVote      b)
-    && (viVoterPayAddress    a == viVoterPayAddress    b)
-    && (viAdaLovelaceValue   a == viAdaLovelaceValue   b)
-    && (viVoteFundIdentifier a == viVoteFundIdentifier b)
-
-PlutusTx.unstableMakeIsData ''VotingInfo
-PlutusTx.makeLift ''VotingInfo
--- }}}
-
-
--- CONTRIBUTION INFO
--- {{{
-data ContributionInfo = ContributionInfo
-  { ciFundAddress :: !PaymentPubKeyHash
-  , ciPrizeFund   :: !BuiltinInteger
-  }
-  deriving (Show)
-
-instance Eq ContributionInfo where
-  {-# INLINABLE (==) #-}
-  a == b =
-       (ciFundAddress a == ciFundAddress b)
-    && (ciPrizeFund   a == ciPrizeFund   b)
-
-PlutusTx.unstableMakeIsData ''ContributionInfo
-PlutusTx.makeLift ''ContributionInfo
+PlutusTx.unstableMakeIsData ''ProjectInfo
 -- }}}
 
 
 -- THE DATUM
 -- {{{
 data QVFDatum
-  = CreateFund    !FundCreationInfo
-  | SubmitProject !ProjectSubmissionInfo
-  | Vote          !VotingInfo
-  | Contribute    !ContributionInfo
-  | CollectPrize
+  = Voting ProjectInfo
+  | Contribution
+  | Distribution
   deriving (Show)
 
 instance Eq QVFDatum where
   {-# INLINABLE (==) #-}
-  CreateFund    info0 == CreateFund    info1 = info0 == info1
-  SubmitProject info0 == SubmitProject info1 = info0 == info1
-  Vote          info0 == Vote          info1 = info0 == info1
-  Contribute    info0 == Contribute    info1 = info0 == info1
-  CollectPrize        == CollectPrize        = True
-  _                   == _                   = False
+  Voting info0 == Voting info1 = info0 == info1
+  Contribution == Contribution = True
+  Distribution == Distribution = True
+  _            == _            = False
 
 PlutusTx.makeIsDataIndexed ''QVFDatum
-  [ ('CreateFund   , 0)
-  , ('SubmitProject, 1)
-  , ('Vote         , 2)
-  , ('Contribute   , 3)
-  , ('CollectPrize , 4)
+  [ ('Voting      , 0)
+  , ('Contribution, 1)
+  , ('Distribution, 2)
   ]
 PlutusTx.makeLift ''QVFDatum
 -- }}}
@@ -150,67 +78,45 @@ PlutusTx.makeLift ''QVFDatum
 -- THE VALIDATOR
 -- {{{
 {-# INLINABLE mkValidator #-}
-mkValidator :: QVFDatum -> () -> ScriptContext -> Bool
-mkValidator datum _ _ =
+mkValidator :: PaymentPubKeyHash
+            -> QVFDatum
+            -> ()
+            -> ScriptContext
+            -> Bool
+mkValidator fundOwner datum _ _ =
   -- {{{
-  let
-    enoughAda :: BuiltinInteger -> Bool
-    enoughAda = Builtins.lessThanInteger minAda
-  in
-  case datum of
-    CreateFund    FundCreationInfo      {..} ->
-      -- {{{
-      traceIfFalse "Not enough ADA." $
-        enoughAda fciPrizeAmount
-      -- }}}
-    Vote          VotingInfo            {..} ->
-      -- {{{
-      traceIfFalse "Not enough ADA to vote." $
-        enoughAda viAdaLovelaceValue
-      -- }}}
-    Contribute    ContributionInfo      {..} ->
-      -- {{{
-      traceIfFalse "Incorrect inputs for contributing to pool." $
-        enoughAda ciPrizeFund
-      -- }}}
-    SubmitProject ProjectSubmissionInfo {..} ->
-      -- {{{
-      traceIfFalse "Not enough funds to register project." $
-        enoughAda psiProjectRegistrationFee
-      -- }}}
-    CollectPrize                             ->
-      -- {{{
-      True -- TODO
-      -- }}}
+  True
   -- }}}
 
 
-data QVF
 
 instance Scripts.ValidatorTypes QVF where
   type DatumType    QVF = QVFDatum
   type RedeemerType QVF = ()
 
 
-typedValidator :: Scripts.TypedValidator QVF
-typedValidator =
+typedValidator :: PaymentPubKeyHash -> Scripts.TypedValidator Vesting
+typedValidator fundOwner =
   Scripts.mkTypedValidator @QVF
-    $$(PlutusTx.compile [||mkValidator||])
-    $$(PlutusTx.compile [||wrap||])
+    ( PlutusTx.applyCode
+        $$(PlutusTx.compile [|| mkValidator ||])
+        PlutusTx.liftCode fundOwner
+    )
+    $$(PlutusTx.compile [|| wrap ||])
   where
     wrap = Scripts.wrapValidator @QVFDatum @()
 
 
-validator :: Validator
-validator = Scripts.validatorScript typedValidator
+validator :: PaymentPubKeyHash -> Validator
+validator = Scripts.validatorScript . typedValidator
 
 
-valHash :: ValidatorHash
-valHash = Scripts.validatorHash typedValidator
+valHash :: PaymentPubKeyHash -> ValidatorHash
+valHash = Scripts.validatorHash . typedValidator
 
 
-scrAddress :: Address
-scrAddress = scriptAddress validator
+scrAddress :: PaymentPubKeyHash -> Address
+scrAddress = scriptAddress . validator
 -- }}}
 
 
