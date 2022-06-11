@@ -88,7 +88,7 @@ mkValidator fundOwner datum () ScriptContext {..} =
   -- }}}
 
 
-
+data QVF
 instance Scripts.ValidatorTypes QVF where
   type DatumType    QVF = QVFDatum
   type RedeemerType QVF = ()
@@ -99,7 +99,7 @@ typedValidator fundOwner =
   Scripts.mkTypedValidator @QVF
     ( PlutusTx.applyCode
         $$(PlutusTx.compile [|| mkValidator ||])
-        PlutusTx.liftCode fundOwner
+        (PlutusTx.liftCode fundOwner)
     )
     $$(PlutusTx.compile [|| wrap ||])
   where
