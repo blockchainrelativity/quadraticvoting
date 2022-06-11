@@ -56,22 +56,18 @@ PlutusTx.unstableMakeIsData ''ProjectInfo
 data QVFDatum
   = Voting ProjectInfo
   | Contribution
-  | Distribution
   deriving (Show)
 
 instance Eq QVFDatum where
   {-# INLINABLE (==) #-}
   Voting info0 == Voting info1 = info0 == info1
   Contribution == Contribution = True
-  Distribution == Distribution = True
   _            == _            = False
 
 PlutusTx.makeIsDataIndexed ''QVFDatum
   [ ('Voting      , 0)
   , ('Contribution, 1)
-  , ('Distribution, 2)
   ]
-PlutusTx.makeLift ''QVFDatum
 -- }}}
 
 
@@ -83,9 +79,12 @@ mkValidator :: PaymentPubKeyHash
             -> ()
             -> ScriptContext
             -> Bool
-mkValidator fundOwner datum _ _ =
+mkValidator fundOwner datum () ScriptContext {..} =
   -- {{{
-  True
+  if txSignedBy scriptContextTxInfo (unPaymentPubKeyHash fundOwner) then
+    True -- TODO: Implement the quadratic logic.
+  else
+    traceIfFalse "Unauthorized." False
   -- }}}
 
 
@@ -95,7 +94,7 @@ instance Scripts.ValidatorTypes QVF where
   type RedeemerType QVF = ()
 
 
-typedValidator :: PaymentPubKeyHash -> Scripts.TypedValidator Vesting
+typedValidator :: PaymentPubKeyHash -> Scripts.TypedValidator QVF
 typedValidator fundOwner =
   Scripts.mkTypedValidator @QVF
     ( PlutusTx.applyCode
@@ -120,8 +119,3 @@ scrAddress = scriptAddress . validator
 -- }}}
 
 
--- CONSTANTS
--- {{{
-minAda :: BuiltinInteger
-minAda = 1_000_000
--- }}}
