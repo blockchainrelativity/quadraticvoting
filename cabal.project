@@ -2,7 +2,7 @@
 index-state: 2022-02-22T20:47:03Z
 
 packages:   quadraticVoting.cabal
-          , ../plutus-browser-bridge/plutus-browser-bridge.cabal
+          , ../plutus-js-bridge/plutus-js-bridge.cabal
 
 -- We never, ever, want this.
 write-ghc-environment-files: never
