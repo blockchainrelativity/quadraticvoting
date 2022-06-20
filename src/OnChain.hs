@@ -100,12 +100,16 @@ takeSqrt val =
 
 
 {-# INLINABLE pluck #-}
-pluck :: (a -> Bool) -> [a] -> (Maybe a, [a])
+-- | If an element of the list satisfies the predicate,
+--   that element is plucked from the list, and is returned
+--   along with the new list. If no element can satisfy the
+--   predicate, @Nothing@ is returned.
+pluck :: (a -> Bool) -> [a] -> Maybe (a, [a])
 pluck pred xs =
   -- {{{
   let
-    go [] acc            = reverse acc
-    go ys (Just y, acc)  = reverse acc ++ ys
+    go [] (Nothing, _)   = Nothing
+    go ys (Just y, acc)  = Just (y, reverse acc ++ ys)
     go (y : ys) (_, acc) =
       if pred y then
         go ys (Just y, acc)
@@ -220,7 +224,7 @@ mkQVFValidator (ProjectsList pis) keyHolder _ _ ctx =
       let
         resolved       = txInInfoResolved txIn
         sourceAddr     = txOutAddress resolved
-        (mPI, newPIs)  = pluck ((sourceAddr ==) . fst) remainingPIs
+        mPIAndNewPIs   = pluck ((sourceAddr ==) . fst) remainingPIs
         inputLovelaces =
           -- {{{
           case getSingularAdaCount (txOutValue resolved) of
@@ -231,7 +235,7 @@ mkQVFValidator (ProjectsList pis) keyHolder _ _ ctx =
           -- }}}
         newFundPool    = fundPool ++ inputLovelaces
       in
-      case mPI of
+      case mPIAndNewPIs of
         Nothing ->
           -- {{{
           ( remainingPIs
@@ -239,14 +243,14 @@ mkQVFValidator (ProjectsList pis) keyHolder _ _ ctx =
           , pisToVotes
           )
           -- }}}
-        Just (_, pi) ->
+        Just ((_, pi), newPIs) ->
           -- {{{
           case takeSqrt inputLovelaces of
             Just voteCount ->
               -- {{{
               ( newPIs
               , newFundPool
-              , (pi, voteCount)
+              , (pi, voteCount) : pisToVotes
               )
               -- }}}
             Nothing        ->
@@ -263,10 +267,7 @@ mkQVFValidator (ProjectsList pis) keyHolder _ _ ctx =
   && traceIfFalse "Improper distribution." correctlyDistributed
   -- }}}
 
-data DonationInfo = DonationInfo
-  { diPaidTo :: Address
-  , diAmount :: Integer
-  , 
+
 -- TEMPLATE HASKELL, BOILERPLATE, ETC. 
 -- {{{
 data QVF
