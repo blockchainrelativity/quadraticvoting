@@ -146,23 +146,49 @@ getSingularAdaCount val =
 
 -- THE VALIDATORS
 -- {{{
-
 -- {{{ PROJECT VALIDATOR 
 {-# INLINABLE mkProjectValidator #-}
 mkProjectValidator :: ProjectInfo -> () -> () -> ScriptContext -> Bool
-mkProjectValidator ProjectInfo {..} _ _ ctx =
+mkProjectValidator pi@ProjectInfo {..} _ _ ctx =
   -- {{{
   let
-    info      = scriptContextTxInfo ctx
-    mAdaCount =
-      -- {{{
-      case txInfoOutputs info of
-        [o] -> getSingularAdaCount $ txOutValue o
-        _   -> Nothing
-      -- }}}
+    info = scriptContextTxInfo ctx
   in
-     traceIfFalse "Unauthorized." (txSignedBy info keyHolder)
-  && traceIfFalse "There should be exactly one ADA output." $ isJust mAdaCount
+  if txSignedBy info keyHolder then
+    let
+      foldFn acc txIn =
+        -- {{{
+        let
+          out                                       = txInInfoResolved txIn
+          outVal                                    = txOutValue out
+          flattened                                 = flattenValue txOutVal
+          innerFold isValid (cs, TokenName tn, amt) =
+            -- {{{
+            if cs == Ada.adaSymbol then
+              isValid
+            else if cs == voteTokenCurrencySymbol (PubKeyHash tn) pi then
+              isValid
+            else
+              traceError "Invalid token."
+            -- }}}
+          inputValueIsValid                         =
+            -- {{{
+            foldl' innerFold True flattened
+            -- }}}
+        in
+        if inputValueIsValid then
+          outVal <> acc
+        else
+          traceError "Invalid input value."
+        -- }}}
+      allInputs       = txInfoInputs info
+      supposedOutputV = foldl' foldFn mempty allInputs
+    in
+    case txInfoOutputs info of
+      [o] ->
+        traceIfFalse "Invalid output." $ txOutValue o == supposedOutputV
+      _   ->
+       traceError "There should be exactly one output."
   -- }}}
 
 -- TEMPLATE HASKELL, BOILERPLATE, ETC. 
@@ -197,6 +223,44 @@ projectValidatorHash = Scripts.validatorHash . typedProjectValidator
 projectAddress :: ProjectInfo -> Address
 projectAddress = scriptAddress . projectValidator
 -- }}}
+-- }}}
+
+
+-- {{{ VOTE TOKEN MINTING POLICY 
+{-# INLINABLE mkTokenPolicy #-}
+mkVoteTokenPolicy :: PubKeyHash
+                  -> ProjectInfo
+                  -> ()
+                  -> ScriptContext
+                  -> Bool
+mkVoteTokenPolicy donor ProjectInfo {..} () ctx =
+  -- {{{
+  let
+    info :: TxInfo
+    info = scriptContextTxInfo ctx
+  in
+  undefined -- TODO
+  -- }}}
+
+
+{-# INLINABLE voteTokenPolicy #-}
+voteTokenPolicy :: PubKeyHash -> ProjectInfo -> Scripts.MintingPolicy
+voteTokenPolicy donor pi = mkMintingPolicyScript $
+  -- {{{
+  $$(PlutusTx.compile [|| \donor' pi' -> Scripts.wrapMintingPolicy $ mkVoteTokenPolicy donor' pi' ||])
+  `PlutusTx.applyCode`
+  PlutusTx.liftCode donor
+  `PlutusTx.applyCode`
+  PlutusTx.liftCode pi
+  -- }}}
+
+
+{-# INLINABLE voteTokenCurrencySymbol #-}
+voteTokenCurrencySymbol :: PubKeyHash -> ProjectInfo -> CurrencySymbol
+voteTokenCurrencySymbol donor =
+  -- {{{
+  scriptCurrencySymbol . voteTokenPolicy donor
+  -- }}}
 -- }}}
 
 
@@ -302,7 +366,6 @@ qvfAddress :: ProjectsList -> Address
 qvfAddress = scriptAddress . qvfValidator
 -- }}}
 -- }}}
-
 -- }}}
 
 
