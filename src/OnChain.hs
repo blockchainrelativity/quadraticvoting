@@ -189,6 +189,8 @@ mkProjectValidator pi@ProjectInfo {..} _ _ ctx =
         traceIfFalse "Invalid output." $ txOutValue o == supposedOutputV
       _   ->
        traceError "There should be exactly one output."
+  else
+    traceError "Unauthorized."
   -- }}}
 
 -- TEMPLATE HASKELL, BOILERPLATE, ETC. 
@@ -265,14 +267,13 @@ voteTokenCurrencySymbol donor =
 
 
 -- {{{ QVF VALIDATOR 
-{-# INLINABLE mkValidator #-}
+{-# INLINABLE mkQVFValidator #-}
 mkQVFValidator :: ProjectsList
-               -> PubKeyHash
                -> ()
                -> ()
                -> ScriptContext
                -> Bool
-mkQVFValidator (ProjectsList pis) keyHolder _ _ ctx =
+mkQVFValidator (ProjectsList pis) _ _ ctx =
   -- {{{
   let
     info = scriptContextTxInfo ctx
